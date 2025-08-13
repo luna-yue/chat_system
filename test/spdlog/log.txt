@@ -1,0 +1,5 @@
+[default-logger][13:57:09][2894989][debug   ][main.cpp:11] hello sb
+[default-logger][13:57:09][2894989][info    ][main.cpp:12] hello sb
+[default-logger][13:57:09][2894989][warning ][main.cpp:13] hello sb
+[default-logger][13:57:09][2894989][error   ][main.cpp:14] hello sb
+[default-logger][13:57:09][2894989][critical][main.cpp:15] hello sb
