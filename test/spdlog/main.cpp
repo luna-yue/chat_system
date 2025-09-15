@@ -8,7 +8,8 @@ int main(int argc ,char *argv[])
     google::ParseCommandLineFlags(&argc,&argv,true);
     std::cout<<FLAGS_run_mode<<FLAGS_log_file<<FLAGS_log_level<<std::endl;
     init_logger(FLAGS_run_mode,FLAGS_log_file,FLAGS_log_level);
-    LOG_DEBUG("hello sb");
+    int x=10;
+    LOG_DEBUG("hello sb {}",x);
     LOG_INFO("hello sb");
     LOG_WARN("hello sb");
     LOG_ERROR("hello sb");
