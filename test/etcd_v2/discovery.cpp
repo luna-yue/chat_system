@@ -22,11 +22,12 @@ int main(int argc, char *argv[])
     //2. 构造服务发现对象
     Discovery::ptr dclient = std::make_shared<Discovery>(FLAGS_etcd_host, FLAGS_base_service, put_cb, del_cb);
     while(1) {
-        //3. 通过Rpc信道管理对象，获取提供Echo服务的信道
+        //3. 通过Rpc信道管理对象，获取提供Echo服务的信道(ChannelManager)
         auto channel = sm->choose(FLAGS_call_service);
         if (!channel) {
             std::this_thread::sleep_for(std::chrono::seconds(1));
-            return -1;
+            //return -1;
+            continue;
         }
         //4. 发起EchoRpc调用
         example::EchoService_Stub stub(channel.get());
