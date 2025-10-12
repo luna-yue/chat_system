@@ -43,6 +43,18 @@ void OnHttp(websocketsvr *server, websocketpp::connection_hdl hdl)
     con->set_status(websocketpp::http::status_code::ok);
 }
 int main(){
+    //websocket 全双工通信，允许客户端和服务器实时双向通信
+    //建立http连接后使用http/1.1 Connection: Upgrade 进行升级 
+    //Sec-WebSocket-Key 是客户端生成的随机字符串
+    //，用于在握手阶段让服务器生成唯一响应，从而防止中间人或非 WebSocket 请求伪造连接。
+    //tls协议， 协商tls版本 加密方式 随机数， 随后服务端发送证书（含服务器公钥）
+    //客户端生成预主密钥 并用服务器公钥（那么只有服务器能用私钥解密）加密发给 服务端
+    //双方用两端生成的随机数和预主密钥生成会话密钥。
+    //整个过程中真正的会话密钥不在网络传输 而是双方独自生成 依赖于证书的可靠性
+    //证书包含域名 公钥 签名 ，如果用ca公钥哈希证书信息得到的与签名匹配可信
+    //如果域名或公钥被修改 则ca公钥哈希后与签名不同 
+    //wss =websocket + tls
+    
     websocketsvr server;
     server.set_access_channels(websocketpp::log::alevel::none);
     server.init_asio();
