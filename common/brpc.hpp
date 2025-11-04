@@ -8,6 +8,8 @@
 #include <unordered_map>
 #include <mutex>
 using namespace std;
+//维护这两个类的意义：
+//客户端在发起rpc过程中 需要动态了解当前可供rpc的主机地址，而用这两个类 上下线的回调动态维护
 class ChannelManager
 {
 public:
@@ -27,7 +29,7 @@ public:
         ChannelPtr _channel = make_shared<brpc::Channel>();
         brpc::ChannelOptions opt;
         opt.protocol = "baidu_std";
-        opt.timeout_ms = 100;
+        opt.timeout_ms = 3000;
         opt.max_retry = 3;
         if (_channel->Init(host.c_str(), &opt) != 0)
         {

@@ -10,6 +10,8 @@
 using namespace std;
 using namespace etcd;
 // 服务注册 //put 设置回调
+//keepalive保活 在后台创建线程 每隔一段时间向etcd刷新lease 当registry类被释放 
+//keepalive->cancel 不再保活到期后服务下线
 class Registry
 {
 public:
@@ -38,6 +40,9 @@ private:
 
 };
 // 用于服务发现 get 调用回调 需要有服务上线和服务下线两个回调
+//创建discovery类时 先调用putcb回调通知客户端现有的支持rpc的主机地址
+//并且给watcher 绑定dispatcher 当有新服务上线 服务下线 调用对应回调。
+//put cb del cb 设置为ServiceManager类中的服务上线和下线回调 （主要为了动态维护）
 class Discovery
 {
     

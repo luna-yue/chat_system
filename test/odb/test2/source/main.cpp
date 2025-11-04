@@ -142,7 +142,7 @@ void all_student(odb::mysql::database &db)
         odb::transaction trans(db.begin());
         typedef odb::query<Student> query;
         typedef odb::result<struct all_name> result;
-        result r(db.query<struct all_name>(query::id == 1));
+        result r(db.query<struct all_name>(query::classes_id == 1));
         for (auto it = r.begin(); it != r.end(); ++it) {
             std::cout << it->name << std::endl;
         }
