@@ -81,7 +81,7 @@ public:
             LOG_ERROR("索引序列化失败！");
             return false;
         }
-        LOG_DEBUG("{}", body);
+        //LOG_DEBUG("{}", body);
         // 2. 发起搜索请求
         // body="{}";
         std::cout << "name:>" << _name << '\n';
@@ -91,7 +91,7 @@ public:
             auto rsp = _client->performRequest(elasticlient::Client::HTTPMethod::PUT, _name, body);
             if (rsp.status_code < 200 || rsp.status_code >= 300)
             {
-                LOG_ERROR("创建ES索引 {} 失败，响应状态码异常: {}", _name, rsp.status_code);
+                LOG_ERROR("创建ES索引 {} 失败或已经存在，响应状态码异常: {}", _name, rsp.status_code);
                 return false;
             }
         }
@@ -131,7 +131,7 @@ public:
             LOG_ERROR("索引序列化失败！");
             return false;
         }
-        LOG_DEBUG("{}", body);
+        //LOG_DEBUG("{}", body);
         // 2. 发起搜索请求
         try
         {
@@ -252,15 +252,15 @@ public:
             LOG_ERROR("索引序列化失败！");
             return Json::Value();
         }
-        LOG_DEBUG("{}",body);
-        LOG_DEBUG("{}", _name);
+        //LOG_DEBUG("{}",body);
+        //LOG_DEBUG("{}", _name);
         // 2. 发起搜索请求
         cpr::Response rsp;
         try
         {   
             rsp=_client->performRequest(
                 elasticlient::Client::HTTPMethod::POST,     
-                "test_user/_refresh", 
+                _name+"/_refresh", 
                 "");
             if (rsp.status_code < 200 || rsp.status_code >= 300)
             {
@@ -268,8 +268,8 @@ public:
                 return Json::Value();
             }
             rsp = _client->performRequest(
-                elasticlient::Client::HTTPMethod::GET,     // 使用 POST
-                "test_user/_search", // URL 包含 wait_for
+                elasticlient::Client::HTTPMethod::GET,     
+                _name+"/_search", 
                 body);
 
             // rsp = _client->search("/"+_name, "_doc", body);
@@ -285,7 +285,7 @@ public:
             return Json::Value();
         }
         // 3. 需要对响应正文进行反序列化
-        LOG_DEBUG("检索响应正文: [{}]", rsp.text);
+        
         Json::Value json_res;
         ret = UnSerialize(rsp.text, json_res);
         if (ret == false)
@@ -293,6 +293,7 @@ public:
             LOG_ERROR("检索数据 {} 结果反序列化失败", rsp.text);
             return Json::Value();
         }
+        //LOG_DEBUG("检索响应正文: [{}]", json_res.to_string());
         return json_res["hits"]["hits"];
     }
 

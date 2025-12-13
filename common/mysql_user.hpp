@@ -97,7 +97,7 @@ public:
         std::vector<User> res;
         try
         {
-            obd::transaction trans(_db->begin());
+            odb::transaction trans(_db->begin());
             typedef odb::query<User> query;
             typedef odb::result<User> result;
             std::stringstream ss;
