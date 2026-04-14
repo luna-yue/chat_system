@@ -8,7 +8,7 @@
 #include "file.pb.h"
 #include "base.pb.h"
 #include "utils.hpp"
-
+using namespace luna;
 DEFINE_bool(run_mode, false, "程序的运行模式，false-调试； true-发布；");
 DEFINE_string(log_file, "", "发布模式下，用于指定日志的输出文件");
 DEFINE_int32(log_level, 0, "发布模式下，用于指定日志输出等级");
@@ -20,7 +20,7 @@ ChannelManager::ChannelPtr channel;
 std::string single_file_id;
 TEST(put_test, single_file)
 {
-    // 1. 读取当前目录下的指定文件数据
+    // 1. 读取当前目录下的指定文in数据
     std::string body;
     ASSERT_TRUE(readFile("./Makefile", body));
     FileService_Stub stub(channel.get());

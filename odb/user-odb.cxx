@@ -523,7 +523,7 @@ namespace odb
   }
 
   const char access::object_traits_impl< ::User, id_mysql >::persist_statement[] =
-  "INSERT INTO `user` "
+  "INSERT INTO `User` "
   "(`id`, "
   "`user_id`, "
   "`nickname`, "
@@ -536,18 +536,18 @@ namespace odb
 
   const char access::object_traits_impl< ::User, id_mysql >::find_statement[] =
   "SELECT "
-  "`user`.`id`, "
-  "`user`.`user_id`, "
-  "`user`.`nickname`, "
-  "`user`.`description`, "
-  "`user`.`password`, "
-  "`user`.`phone`, "
-  "`user`.`avatar_id` "
-  "FROM `user` "
-  "WHERE `user`.`id`=?";
+  "`User`.`id`, "
+  "`User`.`user_id`, "
+  "`User`.`nickname`, "
+  "`User`.`description`, "
+  "`User`.`password`, "
+  "`User`.`phone`, "
+  "`User`.`avatar_id` "
+  "FROM `User` "
+  "WHERE `User`.`id`=?";
 
   const char access::object_traits_impl< ::User, id_mysql >::update_statement[] =
-  "UPDATE `user` "
+  "UPDATE `User` "
   "SET "
   "`user_id`=?, "
   "`nickname`=?, "
@@ -558,25 +558,25 @@ namespace odb
   "WHERE `id`=?";
 
   const char access::object_traits_impl< ::User, id_mysql >::erase_statement[] =
-  "DELETE FROM `user` "
+  "DELETE FROM `User` "
   "WHERE `id`=?";
 
   const char access::object_traits_impl< ::User, id_mysql >::query_statement[] =
   "SELECT "
-  "`user`.`id`, "
-  "`user`.`user_id`, "
-  "`user`.`nickname`, "
-  "`user`.`description`, "
-  "`user`.`password`, "
-  "`user`.`phone`, "
-  "`user`.`avatar_id` "
-  "FROM `user`";
+  "`User`.`id`, "
+  "`User`.`user_id`, "
+  "`User`.`nickname`, "
+  "`User`.`description`, "
+  "`User`.`password`, "
+  "`User`.`phone`, "
+  "`User`.`avatar_id` "
+  "FROM `User`";
 
   const char access::object_traits_impl< ::User, id_mysql >::erase_query_statement[] =
-  "DELETE FROM `user`";
+  "DELETE FROM `User`";
 
   const char access::object_traits_impl< ::User, id_mysql >::table_name[] =
-  "`user`";
+  "`User`";
 
   void access::object_traits_impl< ::User, id_mysql >::
   persist (database& db, object_type& obj)

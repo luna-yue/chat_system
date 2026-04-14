@@ -1,6 +1,7 @@
 #include "mysql.hpp"
 #include "user.hpp"
 #include "user-odb.hxx"
+namespace luna{
 class UserTable
 {
 public:
@@ -126,3 +127,4 @@ public:
 private:
     std::shared_ptr<odb::core::database> _db;
 };
+}

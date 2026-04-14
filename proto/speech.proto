@@ -1,5 +1,5 @@
 syntax = "proto3";
-
+package luna;
 option cc_generic_services = true;
 
 message SpeechRecognitionReq {

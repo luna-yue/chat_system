@@ -28,6 +28,13 @@ void update_by_nickname(UserTable &user_tb) {
     user->nickname("昵称2");
     user_tb.update(user);
 }
+void select_users(UserTable &user_tb) {
+    std::vector<std::string> id_list = {"uid1", "uid2"};
+    auto res = user_tb.select_multi_users(id_list);
+    for (auto user : res) {
+        std::cout << user.nickname() << std::endl;
+    }
+}
 int main(int argc,char * argv[])
 {
     google::ParseCommandLineFlags(&argc,&argv,true);
@@ -36,9 +43,9 @@ int main(int argc,char * argv[])
     auto db=ODBFactory::create("root","968745321","127.0.0.1","TestDB","utf8",0,1);
 
     UserTable user(db);
-    insert(user);
-    update_by_id(user);
-    update_by_phone(user);
-    update_by_nickname(user);
-    
+    //insert(user);
+   // update_by_id(user);
+    //update_by_phone(user);
+    //update_by_nickname(user);
+    select_users(user);
 }

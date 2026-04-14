@@ -2,9 +2,9 @@
  * compiler for C++.
  */
 
-DROP TABLE IF EXISTS `user`;
+DROP TABLE IF EXISTS `User`;
 
-CREATE TABLE `user` (
+CREATE TABLE `User` (
   `id` BIGINT UNSIGNED NOT NULL PRIMARY KEY AUTO_INCREMENT,
   `user_id` varchar(64) NOT NULL,
   `nickname` varchar(64) NULL,
@@ -15,11 +15,11 @@ CREATE TABLE `user` (
  ENGINE=InnoDB;
 
 CREATE UNIQUE INDEX `user_id_i`
-  ON `user` (`user_id`);
+  ON `User` (`user_id`);
 
 CREATE UNIQUE INDEX `nickname_i`
-  ON `user` (`nickname`);
+  ON `User` (`nickname`);
 
 CREATE UNIQUE INDEX `phone_i`
-  ON `user` (`phone`);
+  ON `User` (`phone`);
 

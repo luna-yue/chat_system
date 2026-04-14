@@ -6,6 +6,7 @@
 #include <odb/database.hxx>
 #include <odb/mysql/database.hxx>
 #include "logger.hpp"
+namespace luna{
 class ODBFactory {
     public:
         static std::shared_ptr<odb::core::database> create(
@@ -23,3 +24,4 @@ class ODBFactory {
             return res;
         }
 };
+}

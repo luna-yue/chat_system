@@ -10,7 +10,7 @@
 #include <random>
 #include <iomanip>
 #include "logger.hpp"
-
+namespace luna{
 std::string uuid(){
     //生成一个由16位随机字符组成的字符串作为唯一ID
     // 1. 生成6个0~255之间的随机数字(1字节-转换为16进制字符)--生成12位16进制字符
@@ -70,4 +70,5 @@ bool writeFile(const std::string &filename, const std::string &body){
     }
     ofs.close();
     return true;
+}
 }

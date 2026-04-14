@@ -18,7 +18,7 @@ DEFINE_string(storage_path, "./data/", "当前实例的外部访问地址");
 DEFINE_int32(listen_port, 10002, "Rpc服务器监听端口");
 DEFINE_int32(rpc_timeout, -1, "Rpc调用超时时间");
 DEFINE_int32(rpc_threads, 1, "Rpc的IO线程数量");
-
+using namespace luna;
 int main(int argc, char *argv[])
 {
     google::ParseCommandLineFlags(&argc, &argv, true);

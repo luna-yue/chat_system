@@ -17,18 +17,18 @@ DEFINE_int32(log_level, 0, "发布模式下，用于指定日志输出等级");
 DEFINE_string(etcd_host, "http://127.0.0.1:2379", "服务注册中心地址");
 DEFINE_string(base_service, "/service", "服务监控根目录");
 DEFINE_string(speech_service, "/service/speech_service", "服务监控根目录");
-
+using namespace luna;
 int main(int argc,char * argv[])
 {
     google::ParseCommandLineFlags(&argc, &argv, true);
     init_logger(FLAGS_run_mode, FLAGS_log_file, FLAGS_log_level);
     //1. 先构造Rpc信道管理对象
-    auto sm = std::make_shared<ServiceManager>();
+    auto sm = std::make_shared<luna::ServiceManager>();
     sm->declared(FLAGS_speech_service);
-    auto put_cb = std::bind(&ServiceManager::onServiceOnline, sm.get(), std::placeholders::_1, std::placeholders::_2);
-    auto del_cb = std::bind(&ServiceManager::onServiceOffline, sm.get(), std::placeholders::_1, std::placeholders::_2);
+    auto put_cb = std::bind(&luna::ServiceManager::onServiceOnline, sm.get(), std::placeholders::_1, std::placeholders::_2);
+    auto del_cb = std::bind(&luna::ServiceManager::onServiceOffline, sm.get(), std::placeholders::_1, std::placeholders::_2);
     //2. 构造服务发现对象   
-    Discovery::ptr dclient = std::make_shared<Discovery>(FLAGS_etcd_host, FLAGS_base_service, put_cb, del_cb);
+    luna::Discovery::ptr dclient = std::make_shared<luna::Discovery>(FLAGS_etcd_host, FLAGS_base_service, put_cb, del_cb);
     
         //3. 通过Rpc信道管理对象，获取提供服务的信道(ChannelManager)
         auto channel = sm->choose(FLAGS_speech_service);
@@ -38,7 +38,7 @@ int main(int argc,char * argv[])
             
         }
         //4. 发起EchoRpc调用
-        SpeechService_Stub stub(channel.get());
+        luna::SpeechService_Stub stub(channel.get());
         SpeechRecognitionReq req;
         std::string file_content;
         aip::get_file_content("16k_test.pcm",&file_content);

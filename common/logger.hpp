@@ -4,7 +4,6 @@
 #include <spdlog/sinks/basic_file_sink.h>
 #include <spdlog/async.h>
 #include <iostream>
-
 // mode - 运行模式： true-发布模式； false调试模式
 
 std::shared_ptr<spdlog::logger> g_default_logger;

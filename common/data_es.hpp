@@ -1,7 +1,7 @@
 #include "elasticSearch.hpp"
 #include "user.hpp"
-//#include "message.hxx"
-
+#include "message.hpp"
+namespace luna{
 class ESClientFactory{
     public:
         static std::shared_ptr<elasticlient::Client> create(const std::vector<std::string>host_list){
@@ -123,7 +123,32 @@ class ESMessage{
                 LOG_INFO("消息数据删除成功!");
                 return true;
             }
-            
+            std::vector<luna::Message> search(const std::string &key, const std::string &ssid) {
+                std::vector<luna::Message> res;
+                Json::Value json_user = ESSearch(_es_client, "message")
+                    .append_must_term("chat_session_id.keyword", ssid)
+                    .append_must_match("content", key)
+                    .search();
+                if (json_user.isArray() == false) {
+                    LOG_ERROR("用户搜索结果为空，或者结果不是数组类型");
+                    return res;
+                }
+                int sz = json_user.size();
+                LOG_DEBUG("检索结果条目数量：{}", sz);
+                for (int i = 0; i < sz; i++) {
+                    luna::Message message;
+                    message.user_id(json_user[i]["_source"]["user_id"].asString());
+                    message.message_id(json_user[i]["_source"]["message_id"].asString());
+                    boost::posix_time::ptime ctime(boost::posix_time::from_time_t(
+                        json_user[i]["_source"]["create_time"].asInt64()));
+                    message.create_time(ctime);
+                    message.session_id(json_user[i]["_source"]["chat_session_id"].asString());
+                    message.content(json_user[i]["_source"]["content"].asString());
+                    res.push_back(message);
+                }
+                return res;
+            }
             private:
             std::shared_ptr<elasticlient::Client>_es_client;
 };
+}

@@ -19,7 +19,7 @@ int main(int argc,char * argv[])
 {
     google::ParseCommandLineFlags(&argc, &argv, true);
     init_logger(FLAGS_run_mode, FLAGS_log_file, FLAGS_log_level);
-    SpeechServerBuilder ssb;
+    luna::SpeechServerBuilder ssb;
     ssb.make_asr_object(FLAGS_app_id,FLAGS_api_key,FLAGS_secret_key);
     ssb.make_rpc_server(FLAGS_listen_port,FLAGS_rpc_timeout,FLAGS_rpc_threads);
     ssb.make_reg_object(FLAGS_registry_host,FLAGS_base_service+FLAGS_instance_name,FLAGS_access_host);

@@ -3,7 +3,7 @@
 #include <cstddef>
 #include <odb/nullable.hxx>
 #include <odb/core.hxx>
-#pragma db object table("user")
+#pragma db object table("User")
 
 class User
 {

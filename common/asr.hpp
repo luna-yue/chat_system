@@ -1,5 +1,6 @@
 #include "../third/include/aip-cpp-sdk/speech.h"
 #include "logger.hpp"
+namespace luna{
 class ASRClient
 {
 public:
@@ -21,3 +22,4 @@ public:
     private:
         aip::Speech _client;
 };
+}

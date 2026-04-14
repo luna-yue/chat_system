@@ -10,6 +10,7 @@
 using namespace std;
 //维护这两个类的意义：
 //客户端在发起rpc过程中 需要动态了解当前可供rpc的主机地址，而用这两个类 上下线的回调动态维护
+namespace luna{
 class ChannelManager
 {
 public:
@@ -161,3 +162,4 @@ private:
     std::unordered_set<std::string> _care_services;
     std::unordered_map<std::string, ChannelManager::ptr> _services;
 };
+}

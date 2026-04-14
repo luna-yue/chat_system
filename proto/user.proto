@@ -1,5 +1,6 @@
 syntax = "proto3";
-import base.proto;
+package luna;
+import "base.proto";
 option cc_generic_services =true;
 //用户名注册   
 message UserRegisterReq{
@@ -38,6 +39,18 @@ message PhoneVerifyCodeRsp {
     bool success = 2;
     string errmsg = 3;
     string verify_code_id = 4;
+}
+//手机号注册
+message PhoneRegisterReq {
+    string request_id = 1;
+    string phone_number = 2;
+    string verify_code_id = 3;
+    string verify_code = 4;
+}
+message PhoneRegisterRsp {
+    string request_id = 1;
+    bool success = 2;
+    string errmsg = 3;
 }
 //手机号登录
 message PhoneLoginReq {

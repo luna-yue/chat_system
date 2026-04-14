@@ -5,6 +5,7 @@
 #include <iostream>
 #include <memory>
 #include "logger.hpp"
+namespace luna{
 bool Serialize(const Json::Value &val, std::string &dst)
 {
     // 先定义Json::StreamWriter 工厂类 Json::StreamWriterBuilder
@@ -305,3 +306,4 @@ private:
     Json::Value _must;
     std::shared_ptr<elasticlient::Client> _client;
 };
+}

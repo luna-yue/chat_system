@@ -12,6 +12,7 @@ using namespace etcd;
 // 服务注册 //put 设置回调
 //keepalive保活 在后台创建线程 每隔一段时间向etcd刷新lease 当registry类被释放 
 //keepalive->cancel 不再保活到期后服务下线
+namespace luna{
 class Registry
 {
 public:
@@ -98,3 +99,4 @@ private:
     NotifyCallback _put_cb;
     NotifyCallback _del_cb;
 };
+}

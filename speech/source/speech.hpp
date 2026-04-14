@@ -6,7 +6,7 @@
 #include "etcd.hpp"    // 服务注册模块封装
 #include "logger.hpp"  // 日志模块封装
 #include "speech.pb.h" // protobuf框架代码
-
+namespace luna{
 class SpeechServiceImpl : public SpeechService
 {
 public:
@@ -134,3 +134,4 @@ private:
     Registry::ptr _reg_client;
     std::shared_ptr<brpc::Server> _rpc_server;
 };
+}

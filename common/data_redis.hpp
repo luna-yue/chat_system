@@ -1,5 +1,6 @@
 #include <sw/redis++/redis.h>
 #include <iostream>
+namespace luna{
 class RedisClientFactory
 {
 public:
@@ -18,6 +19,7 @@ public:
         return res;
     }
 };
+//会话
 class Session
 {
 public:
@@ -39,6 +41,7 @@ public:
 private:
     std::shared_ptr<sw::redis::Redis> _redis_client;
 };
+//在线状态
 class Status
 {
 public:
@@ -63,13 +66,14 @@ public:
 private:
     std::shared_ptr<sw::redis::Redis> _redis_client;
 };
+//验证码
 class Codes
 {
 public:
     using ptr = std::shared_ptr<Codes>;
     Codes(const std::shared_ptr<sw::redis::Redis> &redis_client) : _redis_client(redis_client) {}
     void append(const std::string &cid, const std::string &code,
-                const std::chrono::milliseconds &t = std::chrono::milliseconds(300000))
+                const std::chrono::milliseconds &t = std::chrono::milliseconds(300000))//5分钟
     {
         _redis_client->set(cid, code, t);
     }
@@ -85,3 +89,4 @@ public:
 private:
     std::shared_ptr<sw::redis::Redis> _redis_client;
 };
+}

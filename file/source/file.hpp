@@ -10,6 +10,7 @@
 #include "utils.hpp"
 #include "base.pb.h"
 #include "file.pb.h"
+namespace luna{
 class FileServiceImpl : public FileService
 {
 public:
@@ -25,8 +26,8 @@ public:
 private:
     std::string _storage_path;
     void GetSingleFile(google::protobuf::RpcController *controller,
-                       const ::GetSingleFileReq *request,
-                       ::GetSingleFileRsp *response,
+                       const ::luna::GetSingleFileReq *request,
+                       ::luna::GetSingleFileRsp *response,
                        ::google::protobuf::Closure *done)
     {
         brpc::ClosureGuard rpc_guard(done);
@@ -50,8 +51,8 @@ private:
         response->mutable_file_data()->set_file_content(body);
     }
     void GetMultiFile(google::protobuf::RpcController *controller,
-                      const ::GetMultiFileReq *request,
-                      ::GetMultiFileRsp *response,
+                      const ::luna::GetMultiFileReq *request,
+                      ::luna::GetMultiFileRsp *response,
                       ::google::protobuf::Closure *done)
     {
         brpc::ClosureGuard rpc_guard(done);
@@ -78,8 +79,8 @@ private:
         response->set_success(true);
     }
     void PutSingleFile(google::protobuf::RpcController *controller,
-                       const ::PutSingleFileReq *request,
-                       ::PutSingleFileRsp *response,
+                       const ::luna::PutSingleFileReq *request,
+                       ::luna::PutSingleFileRsp *response,
                        ::google::protobuf::Closure *done)
     {
         brpc::ClosureGuard rpc_guard(done);
@@ -103,8 +104,8 @@ private:
         response->mutable_file_info()->set_file_name(request->file_data().file_name());
     }
     void PutMultiFile(google::protobuf::RpcController *controller,
-                      const ::PutMultiFileReq *request,
-                      ::PutMultiFileRsp *response,
+                      const ::luna::PutMultiFileReq *request,
+                      ::luna::PutMultiFileRsp *response,
                       ::google::protobuf::Closure *done)
     {
         brpc::ClosureGuard rpc_guard(done);
@@ -200,3 +201,4 @@ private:
     Registry::ptr _reg_client;
     std::shared_ptr<brpc::Server> _rpc_server;
 };
+}
