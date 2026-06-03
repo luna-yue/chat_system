@@ -13,10 +13,16 @@
 #include "logger.hpp"
 namespace luna
 {
+    enum class ConsumeResult
+    {
+        Success, // 成功
+        Retry,   // 可重试错误
+        Fatal    // 致命错误
+    };
     class MQClient
     {
     public:
-        using MessageCallback = std::function<void(const char *, size_t)>;
+        using MessageCallback = std::function<ConsumeResult(const char *, size_t)>;
         using ptr = std::shared_ptr<MQClient>;
         MQClient(const std::string &user,
                  const std::string passwd,
@@ -48,14 +54,14 @@ namespace luna
                                const std::string &routing_key = "routing_key",
                                AMQP::ExchangeType echange_type = AMQP::ExchangeType::direct)
         {
-            _channel->declareExchange(exchange, echange_type)
+            _channel->declareExchange(exchange, echange_type,AMQP::durable)
                 .onError([](const char *message)
                          {
                     LOG_ERROR("声明交换机失败：{}", message);
                     exit(0); })
                 .onSuccess([exchange]()
                            { LOG_ERROR("{} 交换机创建成功！", exchange); });
-            _channel->declareQueue(queue)
+            _channel->declareQueue(queue,AMQP::durable)
                 .onError([](const char *message)
                          {
                     LOG_ERROR("声明队列失败：{}", message);
@@ -83,6 +89,19 @@ namespace luna
             }
             return true;
         }
+        bool publish(const std::string &exchange,
+                     const AMQP::Envelope &env,
+                     const std::string &routing_key = "routing_key")
+        {
+            LOG_DEBUG("向交换机 {}-{} 发布消息！", exchange, routing_key);
+            bool ret = _channel->publish(exchange, routing_key, env);
+            if (ret == false)
+            {
+                LOG_ERROR("{} 发布消息失败：", exchange);
+                return false;
+            }
+            return true;
+        }
         void consume(const std::string &queue, const MessageCallback &cb)
         {
             LOG_DEBUG("开始订阅 {} 队列消息！", queue);
@@ -91,8 +110,31 @@ namespace luna
                                        uint64_t deliveryTag,
                                        bool redelivered)
                             {
-                    cb(message.body(), message.bodySize());
-                    _channel->ack(deliveryTag); })
+                                ConsumeResult result = cb(message.body(), message.bodySize());
+                                switch (result)
+                                {
+                                case ConsumeResult::Success:
+                                    _channel->ack(deliveryTag);
+                                    break;
+
+                                case ConsumeResult::Retry:
+                                    _channel->reject(deliveryTag, true);
+                                    break;
+
+                                case ConsumeResult::Fatal:
+                                    _channel->ack(deliveryTag);
+                                    LOG_ERROR(
+                                        "Fatal消息丢弃 | msg_body:=",message.body());
+                                    break;
+                                default:
+                                    _channel->ack(deliveryTag);
+                                    LOG_ERROR("未知状态，默认丢弃");
+                                    break;
+                                }
+                                
+                            }
+
+                            )
                 .onError([queue](const char *message)
                          {
                     LOG_ERROR("订阅 {} 队列消息失败: {}", queue, message);

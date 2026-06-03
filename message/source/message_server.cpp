@@ -32,8 +32,8 @@ DEFINE_string(mq_user, "root", "消息队列服务器访问用户名");
 DEFINE_string(mq_pswd, "123456", "消息队列服务器访问密码");
 DEFINE_string(mq_host, "127.0.0.1:5672", "消息队列服务器访问地址");
 DEFINE_string(mq_msg_exchange, "msg_exchange", "持久化消息的发布交换机名称");
-DEFINE_string(mq_msg_queue, "msg_queue", "持久化消息的发布队列名称");
-DEFINE_string(mq_msg_binding_key, "msg_queue", "持久化消息的发布队列名称");
+DEFINE_string(mq_msg_queue, "msg_queue_mysql", "持久化消息的发布队列名称");
+DEFINE_string(mq_msg_binding_key, "msg.*", "持久化消息的发布队列名称");
 
 int main(int argc, char *argv[])
 {

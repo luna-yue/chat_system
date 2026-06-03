@@ -252,14 +252,14 @@ class MessageServiceImpl : public luna::MsgStorageService {
             }
             return;
         }
-        void onMessage(const char *body, size_t sz) {
-            LOG_DEBUG("收到新消息，进行存储处理！");
+        luna::ConsumeResult onMessage(const char *body, size_t sz) {
+            LOG_DEBUG("(Mysql)收到新消息，进行存储处理！");
             //1. 取出序列化的消息内容，进行反序列化
             luna::MessageInfo message;
             bool ret = message.ParseFromArray(body, sz);
             if (ret == false) {
                 LOG_ERROR("对消费到的消息进行反序列化失败！");
-                return;
+                return luna::ConsumeResult::Fatal;
             }
             //2. 根据不同的消息类型进行不同的处理
             std::string file_id, file_name, content;
@@ -267,17 +267,17 @@ class MessageServiceImpl : public luna::MsgStorageService {
             switch(message.message().message_type()) {
                 //  1. 如果是一个文本类型消息，取元信息存储到ES中
                 case MessageType::STRING:
-                    content = message.message().string_message().content();
-                    ret = _es_message->appendData(
-                        message.sender().user_id(),
-                        message.message_id(),
-                        message.timestamp(),
-                        message.chat_session_id(),
-                        content);
-                    if (ret == false) {
-                        LOG_ERROR("文本消息向存储引擎进行存储失败！");
-                        return;
-                    }
+                       content = message.message().string_message().content();
+                //     ret = _es_message->appendData(
+                //         message.sender().user_id(),
+                //         message.message_id(),
+                //         message.timestamp(),
+                //         message.chat_session_id(),
+                //         content);
+                //     if (ret == false) {
+                //         LOG_ERROR("文本消息向存储引擎进行存储失败！");
+                //         return luna::ConsumeResult::Fatal;
+                //     }
                     break;
                 //  2. 如果是一个图片/语音/文件消息，则取出数据存储到文件子服务中，并获取文件ID
                 case MessageType::IMAGE:
@@ -286,7 +286,7 @@ class MessageServiceImpl : public luna::MsgStorageService {
                         ret = _PutFile("", msg.image_content(), msg.image_content().size(), file_id);
                         if (ret == false) {
                             LOG_ERROR("上传图片到文件子服务失败！");
-                            return ;
+                            return luna::ConsumeResult::Fatal;
                         }
                     }
                     break;
@@ -298,7 +298,7 @@ class MessageServiceImpl : public luna::MsgStorageService {
                         ret = _PutFile(file_name, msg.file_contents(), file_size, file_id);
                         if (ret == false) {
                             LOG_ERROR("上传文件到文件子服务失败！");
-                            return ;
+                            return luna::ConsumeResult::Fatal;
                         }
                     }
                     break;
@@ -308,13 +308,13 @@ class MessageServiceImpl : public luna::MsgStorageService {
                         ret = _PutFile("", msg.file_contents(), msg.file_contents().size(), file_id);
                         if (ret == false) {
                             LOG_ERROR("上传语音到文件子服务失败！");
-                            return ;
+                            return luna::ConsumeResult::Fatal;
                         }
                     }
                     break;
                 default:
                     LOG_ERROR("消息类型错误！");
-                    return;
+                    return luna::ConsumeResult::Fatal;
             }
             //3. 提取消息的元信息，存储到mysql数据库中
             luna::Message msg(message.message_id(), 
@@ -329,8 +329,9 @@ class MessageServiceImpl : public luna::MsgStorageService {
             ret = _mysql_message->insert(msg);
             if (ret == false) {
                 LOG_ERROR("向数据库插入新消息失败！");
-                return;
+                return luna::ConsumeResult::Retry;
             }
+            return luna::ConsumeResult::Success;
         }
     private:
         bool _GetUser(const std::string &rid,
@@ -500,7 +501,7 @@ class MessageServerBuilder {
             _exchange_name = exchange_name;
             _queue_name = queue_name;
             _mq_client = std::make_shared<MQClient>(user, passwd, host);
-            _mq_client->declareComponents(exchange_name, queue_name, binding_key);
+            _mq_client->declareComponents(exchange_name, queue_name, binding_key,AMQP::topic);
         }
         void make_rpc_server(uint16_t port, int32_t timeout, uint8_t num_threads) {
             if (!_es_client) {
