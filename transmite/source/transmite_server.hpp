@@ -1,6 +1,7 @@
 #include <brpc/server.h>
 #include <butil/logging.h>
 
+#include "snowflake.hpp"
 #include "etcd.hpp"   // 服务注册模块封装
 #include "logger.hpp" // 日志模块封装
 #include "rabbitmq.hpp"
@@ -21,12 +22,14 @@ namespace luna
                              const std::shared_ptr<odb::core::database> &mysql_client,
                              const std::string &exchange_name,
                              const std::string &routing_key,
-                             const MQClient::ptr &mq_client) : _user_service_name(user_service_name),
-                                                               _mm_channels(channels),
-                                                               _mysql_session_member_table(std::make_shared<ChatSessionMemberTable>(mysql_client)),
-                                                               _exchange_name(exchange_name),
-                                                               _routing_key(routing_key),
-                                                               _mq_client(mq_client) {}
+                             const MQClient::ptr &mq_client,
+                             const uint16_t machine_id) : _user_service_name(user_service_name),
+                                                          _mm_channels(channels),
+                                                          _mysql_session_member_table(std::make_shared<ChatSessionMemberTable>(mysql_client)),
+                                                          _exchange_name(exchange_name),
+                                                          _routing_key(routing_key),
+                                                          _mq_client(mq_client),
+                                                          _snowflake(machine_id) {}
         ~TransmiteServiceImpl() {}
         void GetTransmitTarget(google::protobuf::RpcController *controller,
                                const ::luna::NewMessageReq *request,
@@ -67,7 +70,7 @@ namespace luna
                 return err_response(request->request_id(), "用户子服务调用失败!");
             }
             MessageInfo message;
-            message.set_message_id(uuid());
+            message.set_message_id(std::to_string(_snowflake.next_id()));
             message.set_chat_session_id(chat_ssid);
             message.set_timestamp(time(nullptr));
             message.mutable_sender()->CopyFrom(rsp.user_info());
@@ -94,8 +97,8 @@ namespace luna
                 routing_key = "msg.unknown";
                 break;
             }
-            string tmp_message=message.SerializeAsString();
-            AMQP::Envelope env(tmp_message.c_str(),tmp_message.size());
+            string tmp_message = message.SerializeAsString();
+            AMQP::Envelope env(tmp_message.c_str(), tmp_message.size());
             env.setDeliveryMode(2);
             bool ret = _mq_client->publish(_exchange_name, env, routing_key);
             if (ret == false)
@@ -125,6 +128,8 @@ namespace luna
         std::string _exchange_name;
         std::string _routing_key;
         MQClient::ptr _mq_client;
+
+        Snowflake _snowflake;
     };
     class TransmiteServer
     {
@@ -134,10 +139,10 @@ namespace luna
             const std::shared_ptr<odb::core::database> &mysql_client,
             const Discovery::ptr discovery_client,
             const Registry::ptr &registry_client,
-            const std::shared_ptr<brpc::Server> &server) : _service_discoverer(discovery_client),
-                                                           _registry_client(registry_client),
-                                                           _mysql_client(mysql_client),
-                                                           _rpc_server(server)
+            const std::shared_ptr<brpc::Server> &server ) : _service_discoverer(discovery_client),
+                                                             _registry_client(registry_client),
+                                                             _mysql_client(mysql_client),
+                                                             _rpc_server(server)
         {
         }
         ~TransmiteServer() {}
@@ -201,9 +206,9 @@ namespace luna
             _routing_key = binding_key;
             _exchange_name = exchange_name;
             _mq_client = std::make_shared<MQClient>(user, passwd, host);
-            _mq_client->declareComponents(exchange_name, queue_name, binding_key,AMQP::topic);
+            _mq_client->declareComponents(exchange_name, queue_name, binding_key, AMQP::topic);
         }
-        void make_rpc_server(uint16_t port, int32_t timeout, uint8_t num_threads)
+        void make_rpc_server(uint16_t port, int32_t timeout, uint8_t num_threads, const uint16_t machine_id)
         {
             if (!_mq_client)
             {
@@ -224,7 +229,7 @@ namespace luna
             _rpc_server = std::make_shared<brpc::Server>();
 
             TransmiteServiceImpl *transmite_service = new TransmiteServiceImpl(
-                _user_service_name, _mm_channels, _mysql_client, _exchange_name, _routing_key, _mq_client);
+                _user_service_name, _mm_channels, _mysql_client, _exchange_name, _routing_key, _mq_client, machine_id);
 
             int ret = _rpc_server->AddService(transmite_service,
                                               brpc::ServiceOwnership::SERVER_OWNS_SERVICE);

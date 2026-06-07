@@ -31,6 +31,8 @@ DEFINE_string(mq_msg_exchange, "msg_exchange", "持久化消息的发布交换�
 DEFINE_string(mq_msg_queue, "msg_queue", "持久化消息的发布队列名称");
 DEFINE_string(mq_msg_binding_key, "msg_queue", "持久化消息的发布队列名称");
 
+DEFINE_int32(machine_id, 1, "用于生成唯一id时区分主机的机器id");
+
 int main(int argc,char * argv[])
 {
     google::ParseCommandLineFlags(&argc, &argv, true);
@@ -41,7 +43,7 @@ int main(int argc,char * argv[])
     tsb.make_mysql_object(FLAGS_mysql_user, FLAGS_mysql_pswd, FLAGS_mysql_host, 
         FLAGS_mysql_db, FLAGS_mysql_cset, FLAGS_mysql_port, FLAGS_mysql_pool_count);
     tsb.make_discovery_object(FLAGS_registry_host, FLAGS_base_service, FLAGS_user_service);
-    tsb.make_rpc_server(FLAGS_listen_port, FLAGS_rpc_timeout, FLAGS_rpc_threads);
+    tsb.make_rpc_server(FLAGS_listen_port, FLAGS_rpc_timeout, FLAGS_rpc_threads,FLAGS_machine_id);
     tsb.make_registry_object(FLAGS_registry_host, FLAGS_base_service + FLAGS_instance_name, FLAGS_access_host);
     auto server = tsb.build();
     server->start();
