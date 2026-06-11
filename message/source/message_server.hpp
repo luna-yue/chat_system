@@ -28,7 +28,8 @@ class MessageServiceImpl : public luna::MsgStorageService {
             _mysql_message(std::make_shared<MessageTable>(mysql_client)),
             _file_service_name(file_service_name),
             _user_service_name(user_service_name),
-            _mm_channels(channel_manager){
+            _mm_channels(channel_manager)
+        {
             _es_message->createIndex();
         }
         ~MessageServiceImpl(){}
@@ -503,7 +504,7 @@ class MessageServerBuilder {
             _mq_client = std::make_shared<MQClient>(user, passwd, host);
             _mq_client->declareComponents(exchange_name, queue_name, binding_key,AMQP::topic);
         }
-        void make_rpc_server(uint16_t port, int32_t timeout, uint8_t num_threads) {
+        void make_rpc_server(uint16_t port, int32_t timeout, uint8_t num_threads,const std::string&exchange_name,const std::string & routing_key) {
             if (!_es_client) {
                 LOG_ERROR("还未初始化ES搜索引擎模块！");
                 abort();
@@ -537,7 +538,7 @@ class MessageServerBuilder {
             
             auto callback = std::bind(&MessageServiceImpl::onMessage, msg_service, 
                 std::placeholders::_1, std::placeholders::_2);
-            _mq_client->consume(_queue_name, callback);
+            _mq_client->consume(_queue_name, callback,exchange_name,routing_key);
         }
         //构造RPC服务器对象
         MessageServer::ptr build() {

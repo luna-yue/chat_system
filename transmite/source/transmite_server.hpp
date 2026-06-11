@@ -97,7 +97,7 @@ namespace luna
                 routing_key = "msg.unknown";
                 break;
             }
-            string tmp_message = message.SerializeAsString();
+            string tmp_message=_mq_client->buildBody(0,message.SerializeAsString());
             AMQP::Envelope env(tmp_message.c_str(), tmp_message.size());
             env.setDeliveryMode(2);
             bool ret = _mq_client->publish(_exchange_name, env, routing_key);

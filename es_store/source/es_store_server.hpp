@@ -16,11 +16,15 @@ namespace luna
         EsStoreServer(
             const MQClient::ptr &mq_client,
             const std::shared_ptr<elasticlient::Client> &es_client,
-            const std::string &queue_name)
+            const std::string &queue_name,
+            const std::string &exchange_name,
+            const std::string &routing_key)
             : _mq_client(mq_client),
               _es_client(es_client),
               _queue_name(queue_name),
-              _es_message(std::make_shared<ESMessage>(es_client))
+              _es_message(std::make_shared<ESMessage>(es_client)),
+              _exchange_name(exchange_name),
+              _routing_key(routing_key)
         {
             _es_message->createIndex();
         }
@@ -80,7 +84,7 @@ namespace luna
 
             _mq_client->consume(
                 _queue_name,
-                callback);
+                callback,_exchange_name,_routing_key);
 
             LOG_INFO("ES Store Server 启动成功");
 
@@ -96,6 +100,8 @@ namespace luna
             _es_client;
         std::string _queue_name;
         ESMessage::ptr _es_message;
+        std::string _exchange_name;
+        std::string _routing_key;
     };
 
     class EsStoreServerBuilder
@@ -130,12 +136,12 @@ namespace luna
                 binding_key,
                 AMQP::topic);
         }
-        EsStoreServer::ptr build()
+        EsStoreServer::ptr build(const std::string&exchange_name,const std::string & routing_key)
         {
             return std::make_shared<EsStoreServer>(
                 _mq_client,
                 _es_client,
-                _queue_name);
+                _queue_name,exchange_name,routing_key);
         }
 
     private:

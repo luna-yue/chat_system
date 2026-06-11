@@ -8,6 +8,7 @@
 #include "logger.hpp"   // 日志模块封装
 #include "utils.hpp"    // 基础工具接口
 #include "brpc.hpp"  // 信道管理模块封装
+#include "snowflake.hpp"
 
 #include "user.hpp"
 #include "user-odb.hxx"
@@ -22,14 +23,16 @@ namespace luna{
             const std::shared_ptr<odb::core::database> &mysql_client,
             const std::shared_ptr<sw::redis::Redis> &redis_client,
             const ServiceManager::ptr &channel_manager,
-            const std::string &file_service_name) :
+            const std::string &file_service_name,
+            const uint16_t machine_id) :
             _es_user(std::make_shared<ESUser>(es_client)),
             _mysql_user(std::make_shared<UserTable>(mysql_client)),
             _redis_session(std::make_shared<Session>(redis_client)),
             _redis_status(std::make_shared<Status>(redis_client)),
             _redis_codes(std::make_shared<Codes>(redis_client)),
             _file_service_name(file_service_name),
-            _mm_channels(channel_manager){
+            _mm_channels(channel_manager),
+            _snowflake(machine_id){
             _es_user->createIndex();
         }
          ~UserServiceImpl(){}
@@ -132,7 +135,8 @@ namespace luna{
                 return err_response(request->request_id(), "用户已在其他地方登录!");
             }
              //4. 构造会话 ID，生成会话键值对，向 redis 中添加会话信息以及登录标记信息
-            std::string ssid = uuid();
+            //std::string ssid = uuid();
+            std::string ssid = std::to_string(_snowflake.next_id());
             _redis_session->append(ssid, user->user_id());
             //5. 添加用户登录信息
             _redis_status->append(user->user_id());
@@ -279,7 +283,8 @@ namespace luna{
                 return err_response(request->request_id(), "用户已在其他地方登录!");
             }
             //6. 构造会话 ID，生成会话键值对，向 redis 中添加会话信息以及登录标记信息
-            std::string ssid = uuid();
+            //std::string ssid = uuid();
+            std::string ssid = std::to_string(_snowflake.next_id());
             _redis_session->append(ssid, user->user_id());
             //7. 添加用户登录信息
             _redis_status->append(user->user_id());
@@ -608,7 +613,7 @@ namespace luna{
         //这边是rpc调用客户端相关对象
         std::string _file_service_name;
         ServiceManager::ptr _mm_channels;
-       
+        Snowflake _snowflake;
     };
 class UserServer {
     public:
@@ -681,7 +686,7 @@ class UserServer {
             _registry_client = std::make_shared<Registry>(reg_host);
             _registry_client->Registr(service_name, access_host);
         }
-        void make_rpc_server(uint16_t port, int32_t timeout, uint8_t num_threads) {
+        void make_rpc_server(uint16_t port, int32_t timeout, uint8_t num_threads,const uint16_t machine_id) {
             if (!_es_client) {
                 LOG_ERROR("还未初始化ES搜索引擎模块！");
                 abort();
@@ -702,7 +707,7 @@ class UserServer {
             _rpc_server = std::make_shared<brpc::Server>();
 
             UserServiceImpl *user_service = new UserServiceImpl( _es_client,
-                _mysql_client, _redis_client, _mm_channels, _file_service_name);
+                _mysql_client, _redis_client, _mm_channels, _file_service_name,machine_id);
             int ret = _rpc_server->AddService(user_service, 
                 brpc::ServiceOwnership::SERVER_OWNS_SERVICE);
             if (ret == -1) {

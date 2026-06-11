@@ -33,7 +33,7 @@ DEFINE_int32(redis_port, 6379, "Redis服务器访问端口");
 DEFINE_int32(redis_db, 0, "Redis默认库号");
 DEFINE_bool(redis_keep_alive, true, "Redis长连接保活选项");
 
-
+DEFINE_int32(machine_id, 1, "用于生成唯一id时区分主机的机器id");
 
 int main(int argc, char *argv[])
 {
@@ -46,7 +46,7 @@ int main(int argc, char *argv[])
         FLAGS_mysql_db, FLAGS_mysql_cset, FLAGS_mysql_port, FLAGS_mysql_pool_count);
     usb.make_redis_object(FLAGS_redis_host, FLAGS_redis_port, FLAGS_redis_db, FLAGS_redis_keep_alive);
     usb.make_discovery_object(FLAGS_registry_host, FLAGS_base_service, FLAGS_file_service);
-    usb.make_rpc_server(FLAGS_listen_port, FLAGS_rpc_timeout, FLAGS_rpc_threads);
+    usb.make_rpc_server(FLAGS_listen_port, FLAGS_rpc_timeout, FLAGS_rpc_threads,FLAGS_machine_id);
     usb.make_registry_object(FLAGS_registry_host, FLAGS_base_service + FLAGS_instance_name, FLAGS_access_host);
     auto server = usb.build();
     server->start();

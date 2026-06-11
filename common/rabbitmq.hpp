@@ -35,6 +35,26 @@ namespace luna
             AMQP::Address address(url);
             _connection = std::make_unique<AMQP::TcpConnection>(_handler.get(), address);
             _channel = std::make_unique<AMQP::TcpChannel>(_connection.get());
+            _channel->confirmSelect()
+                .onSuccess([]()
+                           { LOG_INFO("confirm模式开启成功"); })
+                .onAck([](uint64_t tag, bool multiple)
+                       { LOG_INFO("消息确认成功 tag={}", tag); })
+                .onNack([](uint64_t tag,
+                           bool multiple,
+                           bool requeue)
+                        {
+                            LOG_ERROR(
+                                "消息确认失败 tag={} requeue={}",
+                                tag,
+                                requeue);
+
+                            // TODO: 
+                            // 写本地日志
+                            // 放重试队列
+                            // 重新publish
+                            
+                        });
             // 因为ev_run需要执行循环 肯定不能在主线程执行需要创一个子线程
             _loop_thread = std::thread([this]()
                                        { ev_run(_loop, 0); });
@@ -54,14 +74,14 @@ namespace luna
                                const std::string &routing_key = "routing_key",
                                AMQP::ExchangeType echange_type = AMQP::ExchangeType::direct)
         {
-            _channel->declareExchange(exchange, echange_type,AMQP::durable)
+            _channel->declareExchange(exchange, echange_type, AMQP::durable)
                 .onError([](const char *message)
                          {
                     LOG_ERROR("声明交换机失败：{}", message);
                     exit(0); })
                 .onSuccess([exchange]()
                            { LOG_ERROR("{} 交换机创建成功！", exchange); });
-            _channel->declareQueue(queue,AMQP::durable)
+            _channel->declareQueue(queue, AMQP::durable)
                 .onError([](const char *message)
                          {
                     LOG_ERROR("声明队列失败：{}", message);
@@ -102,39 +122,74 @@ namespace luna
             }
             return true;
         }
-        void consume(const std::string &queue, const MessageCallback &cb)
+        std::string buildBody(int retry_count, const std::string &payload)
+        {
+            return std::to_string(retry_count) + "|" + payload;
+        }
+        void consume(const std::string &queue, const MessageCallback &cb, const std::string &exchange_name, const std::string &routing_key)
         {
             LOG_DEBUG("开始订阅 {} 队列消息！", queue);
             _channel->consume(queue, "consume-tag") // 返回值 DeferredConsumer
-                .onReceived([this, cb](const AMQP::Message &message,
-                                       uint64_t deliveryTag,
-                                       bool redelivered)
+                .onReceived([this, cb, exchange_name, routing_key](const AMQP::Message &message,
+                                                                   uint64_t deliveryTag,
+                                                                   bool redelivered)
                             {
-                                ConsumeResult result = cb(message.body(), message.bodySize());
-                                switch (result)
-                                {
-                                case ConsumeResult::Success:
-                                    _channel->ack(deliveryTag);
-                                    break;
+                std::string body(message.body(), message.bodySize());
 
-                                case ConsumeResult::Retry:
-                                    _channel->reject(deliveryTag, true);
-                                    break;
+                int retry_count = 0;
+                std::string payload;
 
-                                case ConsumeResult::Fatal:
-                                    _channel->ack(deliveryTag);
-                                    LOG_ERROR(
-                                        "Fatal消息丢弃 | msg_body:=",message.body());
-                                    break;
-                                default:
-                                    _channel->ack(deliveryTag);
-                                    LOG_ERROR("未知状态，默认丢弃");
-                                    break;
-                                }
-                                
-                            }
+                // 1. 找分隔符 |
+                size_t pos = body.find('|');
 
-                            )
+                if (pos != std::string::npos)
+                {
+                    retry_count = std::stoi(body.substr(0, pos));
+                    payload = body.substr(pos + 1);
+                }
+                else
+                {
+                    // 兼容旧消息（没有 retry_count）
+                    payload = body;
+                }
+
+                // 2. 只把 payload 交给业务回调
+                ConsumeResult result = cb(payload.data(), payload.size());
+
+                if (result == ConsumeResult::Success)
+                {
+                    _channel->ack(deliveryTag);
+                    return;
+                }
+
+                if (result == ConsumeResult::Retry)
+                {
+                    retry_count++;
+
+                    if (retry_count > 5)
+                    {
+                        LOG_ERROR("超过最大重试次数，丢弃消息 | msg_body:=", payload);
+                        _channel->ack(deliveryTag);
+                        return;
+                    }
+                    std::string new_body = buildBody(retry_count, payload);
+                    AMQP::Envelope env(new_body.data(), new_body.size());
+
+                    env.setDeliveryMode(2);
+                    _channel->publish(exchange_name, routing_key, env);
+                    _channel->ack(deliveryTag);
+                    return;
+                }
+
+                if (result == ConsumeResult::Fatal)
+                {
+                    _channel->ack(deliveryTag);
+                    LOG_ERROR("Fatal消息丢弃 | msg_body:=", message.body());
+                    return;
+                }
+
+                _channel->ack(deliveryTag);
+                LOG_ERROR("未知状态，默认丢弃"); })
                 .onError([queue](const char *message)
                          {
                     LOG_ERROR("订阅 {} 队列消息失败: {}", queue, message);

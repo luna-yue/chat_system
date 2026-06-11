@@ -22,7 +22,7 @@ int main(int argc, char *argv[])
     esb.make_mq_object(FLAGS_mq_user, FLAGS_mq_pswd, FLAGS_mq_host,
         FLAGS_mq_msg_exchange, FLAGS_mq_msg_queue, FLAGS_mq_msg_binding_key);
     esb.make_es_object({FLAGS_es_host});
-    auto server = esb.build();
+    auto server = esb.build(FLAGS_mq_msg_exchange,FLAGS_mq_msg_binding_key);
     server->start();
     
 }
