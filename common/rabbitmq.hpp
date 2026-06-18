@@ -10,6 +10,7 @@
 #include <openssl/opensslv.h>
 #include <iostream>
 #include <functional>
+#include <mutex>
 #include "logger.hpp"
 namespace luna
 {
@@ -101,6 +102,7 @@ namespace luna
                      const std::string &routing_key = "routing_key")
         {
             LOG_DEBUG("向交换机 {}-{} 发布消息！", exchange, routing_key);
+            std::lock_guard<std::mutex> lock(publish_mutex);
             bool ret = _channel->publish(exchange, routing_key, msg);
             if (ret == false)
             {
@@ -114,6 +116,7 @@ namespace luna
                      const std::string &routing_key = "routing_key")
         {
             LOG_DEBUG("向交换机 {}-{} 发布消息！", exchange, routing_key);
+            std::lock_guard<std::mutex> lock(publish_mutex);
             bool ret = _channel->publish(exchange, routing_key, env);
             if (ret == false)
             {
@@ -211,5 +214,7 @@ namespace luna
         std::unique_ptr<AMQP::TcpConnection> _connection;
         std::unique_ptr<AMQP::TcpChannel> _channel;
         std::thread _loop_thread;
+
+        std::mutex publish_mutex;
     };
 }

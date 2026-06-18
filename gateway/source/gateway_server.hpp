@@ -238,6 +238,7 @@ namespace luna{
                 response.set_content(rsp.SerializeAsString(), "application/x-protbuf");
             }
             void UserLogin(const httplib::Request &request, httplib::Response &response) {
+                //LOG_DEBUG("User Login req");
                 //1. 取出http请求正文，将正文进行反序列化
                 UserLoginReq req;
                 UserLoginRsp rsp;
