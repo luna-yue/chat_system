@@ -36,6 +36,7 @@ namespace luna
                                ::luna::GetTransmitTargetRsp *response,
                                ::google::protobuf::Closure *done) override
         {
+            LOG_DEBUG("某线程开始转发");
             brpc::ClosureGuard rpc_guard(done);
             auto err_response = [this, response](const std::string &rid,
                                                  const std::string &errmsg) -> void
@@ -98,9 +99,7 @@ namespace luna
                 break;
             }
             string tmp_message=_mq_client->buildBody(0,message.SerializeAsString());
-            AMQP::Envelope env(tmp_message.c_str(), tmp_message.size());
-            env.setDeliveryMode(2);
-            bool ret = _mq_client->publish(_exchange_name, env, routing_key);
+            bool ret = _mq_client->publish(_exchange_name, tmp_message, routing_key);
             if (ret == false)
             {
                 LOG_ERROR("{} - 持久化消息发布失败：{}！", request->request_id(), cntl.ErrorText());
