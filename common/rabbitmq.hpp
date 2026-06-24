@@ -11,6 +11,7 @@
 #include <iostream>
 #include <functional>
 #include <mutex>
+#include <queue>
 #include "logger.hpp"
 namespace luna
 {
@@ -19,6 +20,11 @@ namespace luna
         Success, // 成功
         Retry,   // 可重试错误
         Fatal    // 致命错误
+    };
+    struct Task
+    {
+        std::function<bool()> fn;
+        int retry = 0;
     };
     class MQClient
     {
@@ -50,13 +56,20 @@ namespace luna
                                 tag,
                                 requeue);
 
-                            // TODO: 
+                            // TODO:
                             // 写本地日志
                             // 放重试队列
                             // 重新publish
-                            
                         });
-            // 因为ev_run需要执行循环 肯定不能在主线程执行需要创一个子线程
+            // 1. 初始化 loop
+            _loop = EV_DEFAULT;
+
+            // 2. 初始化 async wakeup
+            ev_async_init(&_wakeup, wakeup_cb);
+            _wakeup.data = this;
+            ev_async_start(_loop, &_wakeup);
+
+            // 3. 启动 IO线程
             _loop_thread = std::thread([this]()
                                        { ev_run(_loop, 0); });
         }
@@ -97,32 +110,88 @@ namespace luna
                 .onSuccess([exchange, queue, routing_key]()
                            { LOG_ERROR("{} - {} - {} 绑定成功！", exchange, queue, routing_key); });
         }
+        void drain_tasks()
+        {
+            std::queue<Task> tasks;
+
+            {
+                std::lock_guard<std::mutex> lock(_queue_mutex);
+                std::swap(tasks, _tasks);
+            }
+
+            while (!tasks.empty())
+            {
+                Task task = tasks.front();
+                tasks.pop();
+
+                bool ok = false;
+
+                try
+                {
+                    ok = task.fn();
+                }
+                catch (const std::exception &e)
+                {
+                    LOG_ERROR("MQ task exception: {}", e.what());
+                }
+                catch (...)
+                {
+                    LOG_ERROR("MQ task unknown exception");
+                }
+
+                if (!ok)
+                {
+                    task.retry++;
+
+                    if (task.retry <= 3)
+                    {
+                        LOG_WARN("MQ publish failed, retry={}", task.retry);
+
+                        std::lock_guard<std::mutex> lock(_queue_mutex);
+                        _tasks.push(task);
+                    }
+                    else
+                    {
+                        LOG_ERROR("MQ task dropped after max retry=3");
+                    }
+                }
+            }
+        }
+        static void wakeup_cb(EV_P_ ev_async *w, int revents)
+        {
+            auto client = static_cast<MQClient *>(w->data);
+            client->drain_tasks();
+        }
         bool publish(const std::string &exchange,
                      const std::string &msg,
                      const std::string &routing_key = "routing_key")
         {
-            LOG_DEBUG("向交换机 {}-{} 发布消息！", exchange, routing_key);
-            std::lock_guard<std::mutex> lock(publish_mutex);
-            bool ret = _channel->publish(exchange, routing_key, msg);
-            if (ret == false)
             {
-                LOG_ERROR("{} 发布消息失败：", exchange);
-                return false;
+                std::lock_guard<std::mutex> lock(_queue_mutex);
+
+                _tasks.emplace(Task{
+                    .fn = [exchange, routing_key, msg, this]() -> bool
+                    {
+                        try
+                        {
+                            AMQP::Envelope env(msg);
+                            env.setDeliveryMode(2);
+                            return _channel->publish(exchange, routing_key, env);
+                        }
+                        catch (const std::exception &e)
+                        {
+                            LOG_ERROR("publish exception: {}", e.what());
+                            return false;
+                        }
+                        catch (...)
+                        {
+                            LOG_ERROR("publish unknown exception");
+                            return false;
+                        }
+                    },
+                    .retry = 0});
             }
-            return true;
-        }
-        bool publish(const std::string &exchange,
-                     const AMQP::Envelope &env,
-                     const std::string &routing_key = "routing_key")
-        {
-            LOG_DEBUG("向交换机 {}-{} 发布消息！", exchange, routing_key);
-            std::lock_guard<std::mutex> lock(publish_mutex);
-            bool ret = _channel->publish(exchange, routing_key, env);
-            if (ret == false)
-            {
-                LOG_ERROR("{} 发布消息失败：", exchange);
-                return false;
-            }
+            ev_async_send(_loop, &_wakeup);
             return true;
         }
         std::string buildBody(int retry_count, const std::string &payload)
@@ -214,7 +283,8 @@ namespace luna
         std::unique_ptr<AMQP::TcpConnection> _connection;
         std::unique_ptr<AMQP::TcpChannel> _channel;
         std::thread _loop_thread;
-
-        std::mutex publish_mutex;
+        std::mutex _queue_mutex;
+        std::queue<Task> _tasks;
+        ev_async _wakeup;
     };
 }
