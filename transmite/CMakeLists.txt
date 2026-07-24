@@ -68,7 +68,7 @@ target_link_libraries(${target} -lgflags
     -lspdlog -lfmt -lbrpc -lssl -lcrypto 
     -lprotobuf -lleveldb -letcd-cpp-api 
     -lcpprest -lcurl -lodb-mysql -lodb -lodb-boost
-    -lamqpcpp -lev)
+    -lamqpcpp -lev -lredis++ -lhiredis)
 
 
 set(trans_user_client "trans_user_client")

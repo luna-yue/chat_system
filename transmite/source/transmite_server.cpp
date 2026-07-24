@@ -1,4 +1,4 @@
-//主要实现语音识别子服务的服务器的搭建
+// 消息转发子服务的服务器搭建 (v2: SessionMemberCache)
 #include "transmite_server.hpp"
 
 DEFINE_bool(run_mode, true, "程序的运行模式，false-调试； true-发布；");
@@ -31,20 +31,30 @@ DEFINE_string(mq_msg_exchange, "msg_exchange", "持久化消息的发布交换�
 DEFINE_string(mq_msg_queue, "msg_queue", "持久化消息的发布队列名称");
 DEFINE_string(mq_msg_binding_key, "msg_queue", "持久化消息的发布队列名称");
 
+DEFINE_string(redis_host, "127.0.0.1", "Redis服务器访问地址");
+
 DEFINE_int32(machine_id, 1, "用于生成唯一id时区分主机的机器id");
 
-int main(int argc,char * argv[])
+int main(int argc, char *argv[])
 {
     google::ParseCommandLineFlags(&argc, &argv, true);
     init_logger(FLAGS_run_mode, FLAGS_log_file, FLAGS_log_level);
+
     luna::TransmiteServerBuilder tsb;
+
     tsb.make_mq_object(FLAGS_mq_user, FLAGS_mq_pswd, FLAGS_mq_host,
         FLAGS_mq_msg_exchange, FLAGS_mq_msg_queue, FLAGS_mq_msg_binding_key);
-    tsb.make_mysql_object(FLAGS_mysql_user, FLAGS_mysql_pswd, FLAGS_mysql_host, 
+
+    tsb.make_mysql_object(FLAGS_mysql_user, FLAGS_mysql_pswd, FLAGS_mysql_host,
         FLAGS_mysql_db, FLAGS_mysql_cset, FLAGS_mysql_port, FLAGS_mysql_pool_count);
+
+    tsb.make_redis_object(FLAGS_redis_host);
+    tsb.make_member_cache_object();  // 新增: 创建缓存层 (需 MySQL + Redis 已就绪)
+
     tsb.make_discovery_object(FLAGS_registry_host, FLAGS_base_service, FLAGS_user_service);
-    tsb.make_rpc_server(FLAGS_listen_port, FLAGS_rpc_timeout, FLAGS_rpc_threads,FLAGS_machine_id);
+    tsb.make_rpc_server(FLAGS_listen_port, FLAGS_rpc_timeout, FLAGS_rpc_threads, FLAGS_machine_id);
     tsb.make_registry_object(FLAGS_registry_host, FLAGS_base_service + FLAGS_instance_name, FLAGS_access_host);
+
     auto server = tsb.build();
     server->start();
     return 0;
