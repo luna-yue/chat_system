@@ -1,0 +1,257 @@
+# ============================================================
+# Chat System — Docker Compose (完整版)
+#
+# 一键部署: docker compose up -d
+#
+# 中间件: etcd, MySQL, Redis, RabbitMQ, Elasticsearch
+# 业务服务: gateway, user, friend, transmite, message, file, speech, es_store
+#
+# 端口: HTTP 9000, WebSocket 9001
+# ============================================================
+
+services:
+
+  # ====================================================================
+  # 中间件
+  # ====================================================================
+
+  etcd:
+    image: quay.io/coreos/etcd:v3.5.9
+    container_name: chat-etcd
+    command: etcd --listen-client-urls http://0.0.0.0:2379 --advertise-client-urls http://0.0.0.0:2379
+    ports:
+      - "2379:2379"
+      - "2380:2380"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "etcdctl", "endpoint", "health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  mysql:
+    image: mysql:8.0
+    container_name: chat-mysql
+    ports:
+      - "3306:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: "968745321"
+    volumes:
+      - ./scripts/init_db.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+      - mysql_data:/var/lib/mysql
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-p968745321"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  redis:
+    image: redis:7-alpine
+    container_name: chat-redis
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: chat-rabbitmq
+    ports:
+      - "5672:5672"   # AMQP
+      - "15672:15672" # 管理界面
+    environment:
+      RABBITMQ_DEFAULT_USER: root
+      RABBITMQ_DEFAULT_PASS: "123456"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "check_port_connectivity"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  elasticsearch:
+    image: docker.m.daocloud.io/elasticsearch:7.17.0
+    container_name: chat-es
+    ports:
+      - "9200:9200"
+      - "9300:9300"
+    environment:
+      - "discovery.type=single-node"
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s http://localhost:9200/_cluster/health | grep -q -E 'green|yellow'"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 40s
+
+  # ====================================================================
+  # 业务服务
+  # ====================================================================
+
+  file:
+    image: chat-system:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: chat-file
+    network_mode: host
+    environment:
+      SERVICE_NAME: file
+      ETCD_HOST: 127.0.0.1
+      ACCESS_HOST: 127.0.0.1:10002
+    depends_on:
+      etcd:
+        condition: service_healthy
+    restart: unless-stopped
+
+  speech:
+    image: chat-system:latest
+    container_name: chat-speech
+    network_mode: host
+    environment:
+      SERVICE_NAME: speech
+      ETCD_HOST: 127.0.0.1
+      ACCESS_HOST: 127.0.0.1:10001
+    depends_on:
+      etcd:
+        condition: service_healthy
+    restart: unless-stopped
+
+  user:
+    image: chat-system:latest
+    container_name: chat-user
+    network_mode: host
+    environment:
+      SERVICE_NAME: user
+      ETCD_HOST: 127.0.0.1
+      ACCESS_HOST: 127.0.0.1:10003
+      MYSQL_HOST: 127.0.0.1
+      REDIS_HOST: 127.0.0.1
+      ES_HOST: 127.0.0.1
+      MACHINE_ID: 1
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+    restart: unless-stopped
+
+  transmite:
+    image: chat-system:latest
+    container_name: chat-transmite
+    network_mode: host
+    environment:
+      SERVICE_NAME: transmite
+      ETCD_HOST: 127.0.0.1
+      ACCESS_HOST: 127.0.0.1:10004
+      MYSQL_HOST: 127.0.0.1
+      REDIS_HOST: 127.0.0.1
+      MQ_HOST: 127.0.0.1
+      MQ_EXCHANGE: msg_exchange
+      MQ_QUEUE: msg_queue
+      MQ_BINDING_KEY: "msg.#"
+      MACHINE_ID: 2
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    restart: unless-stopped
+
+  message:
+    image: chat-system:latest
+    container_name: chat-message
+    network_mode: host
+    environment:
+      SERVICE_NAME: message
+      ETCD_HOST: 127.0.0.1
+      ACCESS_HOST: 127.0.0.1:10005
+      MYSQL_HOST: 127.0.0.1
+      ES_HOST: 127.0.0.1
+      MQ_HOST: 127.0.0.1
+      MQ_EXCHANGE: msg_exchange
+      MQ_QUEUE: msg_queue_mysql
+      MQ_BINDING_KEY: "msg.#"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    restart: unless-stopped
+
+  es_store:
+    image: chat-system:latest
+    container_name: chat-es-store
+    network_mode: host
+    environment:
+      SERVICE_NAME: es_store
+      ES_HOST: 127.0.0.1
+      MQ_HOST: 127.0.0.1
+      MQ_EXCHANGE: msg_exchange
+      MQ_QUEUE: msg_queue_es
+      MQ_BINDING_KEY: "msg.text"
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    restart: unless-stopped
+
+  friend:
+    image: chat-system:latest
+    container_name: chat-friend
+    network_mode: host
+    environment:
+      SERVICE_NAME: friend
+      ETCD_HOST: 127.0.0.1
+      ACCESS_HOST: 127.0.0.1:10006
+      MYSQL_HOST: 127.0.0.1
+      ES_HOST: 127.0.0.1
+    depends_on:
+      mysql:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+    restart: unless-stopped
+
+  gateway:
+    image: chat-system:latest
+    container_name: chat-gateway
+    network_mode: host
+    environment:
+      SERVICE_NAME: gateway
+      ETCD_HOST: 127.0.0.1
+      REDIS_HOST: 127.0.0.1
+      HTTP_PORT: "9000"
+      WS_PORT: "9001"
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    depends_on:
+      user:
+        condition: service_started
+      friend:
+        condition: service_started
+      transmite:
+        condition: service_started
+      message:
+        condition: service_started
+    restart: unless-stopped
+
+volumes:
+  mysql_data:
