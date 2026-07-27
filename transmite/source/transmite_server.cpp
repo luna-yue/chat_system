@@ -1,4 +1,4 @@
-// 消息转发子服务的服务器搭建 (v2: SessionMemberCache)
+// 消息转发子服务的服务器搭建 (v3: +UserInfoCache)
 #include "transmite_server.hpp"
 
 DEFINE_bool(run_mode, true, "程序的运行模式，false-调试； true-发布；");
@@ -49,9 +49,10 @@ int main(int argc, char *argv[])
         FLAGS_mysql_db, FLAGS_mysql_cset, FLAGS_mysql_port, FLAGS_mysql_pool_count);
 
     tsb.make_redis_object(FLAGS_redis_host);
-    tsb.make_member_cache_object();  // 新增: 创建缓存层 (需 MySQL + Redis 已就绪)
-
+    tsb.make_member_cache_object();
     tsb.make_discovery_object(FLAGS_registry_host, FLAGS_base_service, FLAGS_user_service);
+    tsb.make_user_cache_object();  // v3: 用户信息缓存 (需在 discovery 之后)
+
     tsb.make_rpc_server(FLAGS_listen_port, FLAGS_rpc_timeout, FLAGS_rpc_threads, FLAGS_machine_id);
     tsb.make_registry_object(FLAGS_registry_host, FLAGS_base_service + FLAGS_instance_name, FLAGS_access_host);
 

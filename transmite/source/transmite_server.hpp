@@ -11,6 +11,7 @@
 #include "brpc.hpp"
 #include "utils.hpp"
 #include "session_member_cache.hpp"
+#include "user_info_cache.hpp"
 #include "data_redis.hpp"
 #include "mysql_chat_session_member.hpp"
 
@@ -23,19 +24,17 @@ namespace luna
     class TransmiteServiceImpl : public MsgTransmitService
     {
     public:
-        TransmiteServiceImpl(const std::string &user_service_name,
-                             const ServiceManager::ptr &channels,
-                             const std::string &exchange_name,
+        TransmiteServiceImpl(const std::string &exchange_name,
                              const std::string &routing_key,
                              const MQClient::ptr &mq_client,
                              const SessionMemberCache::ptr &member_cache,
+                             const UserInfoCache::ptr &user_cache,
                              const uint16_t machine_id)
-            : _user_service_name(user_service_name),
-              _mm_channels(channels),
-              _exchange_name(exchange_name),
+            : _exchange_name(exchange_name),
               _routing_key(routing_key),
               _mq_client(mq_client),
               _member_cache(member_cache),
+              _user_cache(user_cache),
               _snowflake(machine_id) {}
 
         ~TransmiteServiceImpl() {}
@@ -60,34 +59,23 @@ namespace luna
             std::string chat_ssid = request->chat_session_id();
             const MessageContent &content = request->message();
 
-            // 1. 获取发送者信息 (调用用户子服务)
-            auto channel = _mm_channels->choose(_user_service_name);
-            if (!channel) {
-                LOG_ERROR("{}-{} 没有可供访问的用户子服务节点！", rid, _user_service_name);
-                return err_response(rid, "没有可供访问的用户子服务节点！");
-            }
-            UserService_Stub stub(channel.get());
-            GetUserInfoReq req;
-            GetUserInfoRsp rsp;
-            req.set_request_id(rid);
-            req.set_user_id(uid);
-            brpc::Controller cntl;
-            stub.GetUserInfo(&cntl, &req, &rsp, nullptr);
+            // 1. 获取发送者信息 (UserInfoCache, 首次命中 ~100us, 之后免 RPC)
+            auto sender = _user_cache->get(uid);
             auto t1 = std::chrono::steady_clock::now();
 
-            if (cntl.Failed() || !rsp.success()) {
-                LOG_ERROR("{} - 用户子服务调用失败：{}！", rid, cntl.ErrorText());
-                return err_response(rid, "用户子服务调用失败!");
+            if (!sender.has_value()) {
+                LOG_ERROR("{} - 获取发送者信息失败！", rid);
+                return err_response(rid, "获取发送者信息失败!");
             }
 
             MessageInfo message;
             message.set_message_id(std::to_string(_snowflake.next_id()));
             message.set_chat_session_id(chat_ssid);
             message.set_timestamp(time(nullptr));
-            message.mutable_sender()->CopyFrom(rsp.user_info());
+            message.mutable_sender()->CopyFrom(*sender);
             message.mutable_message()->CopyFrom(content);
 
-            // 2. 获取转发目标列表 (Redis 缓存, 自动回源 MySQL)
+            // 2. 获取转发目标列表 (SessionMemberCache)
             auto target_list = _member_cache->get(chat_ssid);
             auto t2 = std::chrono::steady_clock::now();
 
@@ -113,18 +101,20 @@ namespace luna
                 static std::atomic<int> sample{0};
                 int n = sample.fetch_add(1);
                 if (n % 100 == 0) {
-                    auto us_sender = std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count();
-                    auto us_cache  = std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count();
-                    auto us_mq     = std::chrono::duration_cast<std::chrono::microseconds>(t3 - t2).count();
-                    auto us_total  = std::chrono::duration_cast<std::chrono::microseconds>(t3 - t0).count();
+                    auto us_sender  = std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count();
+                    auto us_members = std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count();
+                    auto us_mq      = std::chrono::duration_cast<std::chrono::microseconds>(t3 - t2).count();
+                    auto us_total   = std::chrono::duration_cast<std::chrono::microseconds>(t3 - t0).count();
 
-                    auto stats = _member_cache->stats();
-                    long total = stats.hits + stats.misses;
-                    LOG_ERROR("TIMING[{}] sender_rpc={}us cache={}us mq={}us total={}us  "
-                              "cache_hit={} miss={} hit_rate={:.1f}%",
-                              n, us_sender, us_cache, us_mq, us_total,
-                              stats.hits, stats.misses,
-                              total > 0 ? 100.0 * stats.hits / total : 0.0);
+                    auto mst = _member_cache->stats();
+                    auto ust = _user_cache->stats();
+                    long mt = mst.hits + mst.misses;
+                    long ut = ust.hits + ust.misses;
+                    LOG_ERROR("TIMING[{}] sender={}us members={}us mq={}us total={}us  "
+                              "members_hit={:.1f}% user_hit={:.1f}%",
+                              n, us_sender, us_members, us_mq, us_total,
+                              mt > 0 ? 100.0 * mst.hits / mt : 0.0,
+                              ut > 0 ? 100.0 * ust.hits / ut : 0.0);
                 }
             }
 
@@ -138,12 +128,11 @@ namespace luna
         }
 
     private:
-        std::string _user_service_name;
-        ServiceManager::ptr _mm_channels;
         std::string _exchange_name;
         std::string _routing_key;
         MQClient::ptr _mq_client;
         SessionMemberCache::ptr _member_cache;
+        UserInfoCache::ptr _user_cache;
         Snowflake _snowflake;
     };
 
@@ -228,18 +217,42 @@ namespace luna
             _member_cache = std::make_shared<SessionMemberCache>(_redis_client, loader);
         }
 
+        // 构造用户信息缓存 (需先调用 make_discovery_object + make_redis_object)
+        void make_user_cache_object()
+        {
+            if (!_mm_channels)   { LOG_ERROR("用户缓存需先初始化服务发现！"); abort(); }
+            if (!_redis_client)  { LOG_ERROR("用户缓存需先初始化 Redis！"); abort(); }
+
+            UserInfoCache::DbLoader loader =
+                [channels = _mm_channels, svc = _user_service_name]
+                (const std::string &user_id) -> std::optional<luna::UserInfo> {
+                    auto channel = channels->choose(svc);
+                    if (!channel) return std::nullopt;
+                    UserService_Stub stub(channel.get());
+                    GetUserInfoReq req;
+                    GetUserInfoRsp rsp;
+                    req.set_request_id(user_id);
+                    req.set_user_id(user_id);
+                    brpc::Controller cntl;
+                    stub.GetUserInfo(&cntl, &req, &rsp, nullptr);
+                    if (cntl.Failed() || !rsp.success()) return std::nullopt;
+                    return rsp.user_info();
+                };
+            _user_cache = std::make_shared<UserInfoCache>(_redis_client, loader);
+        }
+
         void make_rpc_server(uint16_t port, int32_t timeout, uint8_t num_threads,
                              const uint16_t machine_id)
         {
             if (!_mq_client)     { LOG_ERROR("还未初始化消息队列客户端模块！"); abort(); }
-            if (!_mm_channels)   { LOG_ERROR("还未初始化信道管理模块！");       abort(); }
             if (!_member_cache)  { LOG_ERROR("还未初始化成员缓存模块！");       abort(); }
+            if (!_user_cache)    { LOG_ERROR("还未初始化用户缓存模块！");       abort(); }
 
             _rpc_server = std::make_shared<brpc::Server>();
 
             auto *transmite_service = new TransmiteServiceImpl(
-                _user_service_name, _mm_channels, _exchange_name,
-                _routing_key, _mq_client, _member_cache, machine_id);
+                _exchange_name, _routing_key, _mq_client,
+                _member_cache, _user_cache, machine_id);
 
             int ret = _rpc_server->AddService(transmite_service,
                                               brpc::ServiceOwnership::SERVER_OWNS_SERVICE);
@@ -273,6 +286,7 @@ namespace luna
         std::shared_ptr<odb::core::database> _mysql_client;
         std::shared_ptr<sw::redis::Redis> _redis_client;
         SessionMemberCache::ptr _member_cache;
+        UserInfoCache::ptr _user_cache;
         std::shared_ptr<brpc::Server> _rpc_server;
     };
 }
