@@ -3,6 +3,8 @@
 #include "logger.hpp"   // 日志模块封装
 #include "brpc.hpp"  // 信道管理模块封装
 
+#include <chrono>
+#include <atomic>
 #include "connection.hpp"
 
 #include "user.pb.h"  // protobuf框架代码
@@ -1270,20 +1272,23 @@ namespace luna{
             }
 
             void NewMessage(const httplib::Request &request, httplib::Response &response) {
+                auto t0 = std::chrono::steady_clock::now();
                 NewMessageReq req;
-                NewMessageRsp rsp;//这是给客户端的响应
-                GetTransmitTargetRsp target_rsp;//这是请求子服务的响应
+                NewMessageRsp rsp;
+                GetTransmitTargetRsp target_rsp;
                 auto err_response = [&req, &rsp, &response](const std::string &errmsg) -> void {
                     rsp.set_success(false);
                     rsp.set_errmsg(errmsg);
                     response.set_content(rsp.SerializeAsString(), "application/x-protbuf");
                 };
+                // 1. protobuf 反序列化
                 bool ret = req.ParseFromString(request.body);
                 if (ret == false) {
                     LOG_ERROR("新消息请求正文反序列化失败！");
                     return err_response("新消息请求正文反序列化失败！");
                 }
-                // 2. 客户端身份识别与鉴权
+                auto t1 = std::chrono::steady_clock::now();
+                // 2. 客户端身份识别与鉴权 (Redis session)
                 std::string ssid = req.session_id();
                 auto uid = _redis_session->uid(ssid);
                 if (!uid) {
@@ -1291,12 +1296,15 @@ namespace luna{
                     return err_response("获取登录会话关联用户信息失败！");
                 }
                 req.set_user_id(*uid);
-                // 3. 将请求转发给好友子服务进行业务处理
+                auto t2 = std::chrono::steady_clock::now();
+                // 3. 获取 brpc channel
                 auto channel = _mm_channels->choose(_transmite_service_name);
                 if (!channel) {
                     LOG_ERROR("{} 未找到可提供业务处理的用户子服务节点！", req.request_id());
                     return err_response("未找到可提供业务处理的用户子服务节点！");
                 }
+                auto t3 = std::chrono::steady_clock::now();
+                // 4. brpc 调用 Transmite
                 luna::MsgTransmitService_Stub stub(channel.get());
                 brpc::Controller cntl;
                 stub.GetTransmitTarget(&cntl, &req, &target_rsp, nullptr);
@@ -1304,25 +1312,48 @@ namespace luna{
                     LOG_ERROR("{} 消息转发子服务调用失败！", req.request_id());
                     return err_response("消息转发子服务调用失败！");
                 }
-                // 4. 若业务处理成功 --- 且获取被申请方长连接成功，则向被申请放进行好友申请事件通知
+                auto t4 = std::chrono::steady_clock::now();
+                // 5. WebSocket 推送 (NotifyMessage 只序列化一次)
                 if (target_rsp.success()){
-                    for (int i = 0; i < target_rsp.target_id_list_size(); i++) {
-                        std::string notify_uid = target_rsp.target_id_list(i);
-                        if (notify_uid == *uid) continue; //不通知自己
-                        auto conn = _connections->connection(notify_uid);
-                        if (!conn) { continue;}
+                    std::string notify_bin;
+                    {
                         NotifyMessage notify;
                         notify.set_notify_type(NotifyType::CHAT_MESSAGE_NOTIFY);
-                        auto msg_info = notify.mutable_new_message_info();
-                        msg_info->mutable_message_info()->CopyFrom(target_rsp.message());
-                        conn->send(notify.SerializeAsString(), websocketpp::frame::opcode::value::binary);
+                        notify.mutable_new_message_info()->mutable_message_info()->CopyFrom(target_rsp.message());
+                        notify.SerializeToString(&notify_bin);
+                    }
+                    for (int i = 0; i < target_rsp.target_id_list_size(); i++) {
+                        std::string notify_uid = target_rsp.target_id_list(i);
+                        if (notify_uid == *uid) continue;
+                        auto conn = _connections->connection(notify_uid);
+                        if (!conn) continue;
+                        conn->send(notify_bin, websocketpp::frame::opcode::value::binary);
                     }
                 }
-                // 5. 向客户端进行响应
+                auto t5 = std::chrono::steady_clock::now();
+                // 6. 响应序列化
                 rsp.set_request_id(req.request_id());
                 rsp.set_success(target_rsp.success());
                 rsp.set_errmsg(target_rsp.errmsg());
                 response.set_content(rsp.SerializeAsString(), "application/x-protbuf");
+                auto t6 = std::chrono::steady_clock::now();
+
+                // === 性能采样 (每 100 条) ===
+                {
+                    static std::atomic<int> sample{0};
+                    int n = sample.fetch_add(1);
+                    if (n % 100 == 0) {
+                        auto us_parse   = std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count();
+                        auto us_session = std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count();
+                        auto us_channel = std::chrono::duration_cast<std::chrono::microseconds>(t3 - t2).count();
+                        auto us_trans   = std::chrono::duration_cast<std::chrono::microseconds>(t4 - t3).count();
+                        auto us_push    = std::chrono::duration_cast<std::chrono::microseconds>(t5 - t4).count();
+                        auto us_serial  = std::chrono::duration_cast<std::chrono::microseconds>(t6 - t5).count();
+                        auto us_total   = std::chrono::duration_cast<std::chrono::microseconds>(t6 - t0).count();
+                        LOG_ERROR("GW_TIMING[{}] parse={}us session={}us channel={}us transmite={}us push={}us serialize={}us total={}us",
+                                  n, us_parse, us_session, us_channel, us_trans, us_push, us_serial, us_total);
+                    }
+                }
             }
         private:
             Session::ptr _redis_session;

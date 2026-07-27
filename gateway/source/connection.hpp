@@ -26,7 +26,7 @@ class Connection{
             std::unique_lock<std::mutex> lock(_mutex);
             auto it = _uid_connections.find(uid);
             if (it == _uid_connections.end()) {
-                LOG_ERROR("未找到 {} 客户端的长连接！", uid);
+                // no ws conn
                 return server_t::connection_ptr();
             }
             LOG_DEBUG("找到 {} 客户端的长连接！", uid);
@@ -36,7 +36,7 @@ class Connection{
             std::unique_lock<std::mutex> lock(_mutex);
             auto it = _conn_clients.find(conn);
             if (it == _conn_clients.end()) {
-                LOG_ERROR("获取-未找到长连接 {} 对应的客户端信息！", (size_t)conn.get());
+                // normal
                 return false;
             }
             uid = it->second.uid;
@@ -48,7 +48,7 @@ class Connection{
             std::unique_lock<std::mutex> lock(_mutex);
             auto it = _conn_clients.find(conn);
             if (it == _conn_clients.end()) {
-                LOG_ERROR("删除-未找到长连接 {} 对应的客户端信息！", (size_t)conn.get());
+                // normal
                 return;
             }
             _uid_connections.erase(it->second.uid);
