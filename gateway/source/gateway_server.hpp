@@ -67,7 +67,8 @@ namespace luna{
                 const std::string friend_service_name,
                 const MQClient::ptr &mq_push_client,
                 const std::string &push_exchange,
-                const std::string &push_routing_key)
+                const std::string &push_routing_key,
+                const std::string &push_queue)
                 :_redis_session(std::make_shared<Session>(redis_client)),
                 _redis_status(std::make_shared<Status>(redis_client)),
                 _mm_channels(channels),
@@ -81,10 +82,11 @@ namespace luna{
                 _connections(std::make_shared<Connection>()),
                 _mq_push_client(mq_push_client),
                 _push_exchange(push_exchange),
-                _push_routing_key(push_routing_key){
+                _push_routing_key(push_routing_key),
+                _push_queue(push_queue){
 
                 // 启动 MQ push 消费者 (在 MQClient 内部线程运行)
-                _mq_push_client->consume("push_queue",
+                _mq_push_client->consume(_push_queue,
                     [this](const char *body, size_t len) -> ConsumeResult {
                         std::string data(body, len);
                         size_t nl = data.find('\n');
@@ -1401,6 +1403,7 @@ namespace luna{
             MQClient::ptr _mq_push_client;
             std::string _push_exchange;
             std::string _push_routing_key;
+            std::string _push_queue;
 
             server_t _ws_server; 
             httplib::Server _http_server;
@@ -1445,12 +1448,14 @@ namespace luna{
             // 构造 MQ push 客户端 (WebSocket 推送异步化)
             void make_push_mq_object(const std::string &user,
                                      const std::string &passwd,
-                                     const std::string &host) {
-                _mq_push_client = std::make_shared<MQClient>(user, passwd, host);
-                _mq_push_client->declareComponents("push_exchange",
-                    "push_queue", "push.notify", AMQP::topic);
+                                     const std::string &host,
+                                     const std::string &gateway_id) {
+                _push_queue = "push_queue_gw_" + gateway_id;
                 _push_exchange = "push_exchange";
                 _push_routing_key = "push.notify";
+                _mq_push_client = std::make_shared<MQClient>(user, passwd, host);
+                _mq_push_client->declareComponents(_push_exchange,
+                    _push_queue, _push_routing_key, AMQP::topic);
             }
 
             void make_server_object(int websocket_port, int http_port) {
@@ -1480,7 +1485,7 @@ namespace luna{
                     _service_discoverer, _user_service_name, _file_service_name,
                     _speech_service_name, _message_service_name,
                     _transmite_service_name, _friend_service_name,
-                    _mq_push_client, _push_exchange, _push_routing_key);
+                    _mq_push_client, _push_exchange, _push_routing_key, _push_queue);
                 return server;
             }
         private:
@@ -1491,6 +1496,7 @@ namespace luna{
             MQClient::ptr _mq_push_client;
             std::string _push_exchange;
             std::string _push_routing_key;
+            std::string _push_queue;
 
             std::string _file_service_name;
             std::string _speech_service_name;

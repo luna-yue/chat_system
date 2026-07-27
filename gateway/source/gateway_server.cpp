@@ -25,6 +25,7 @@ DEFINE_bool(redis_keep_alive, true, "Redis长连接保活选项");
 DEFINE_string(mq_user, "root", "MQ用户名");
 DEFINE_string(mq_pswd, "123456", "MQ密码");
 DEFINE_string(mq_host, "127.0.0.1:5672", "MQ地址");
+DEFINE_string(gateway_id, "gw1", "网关实例 ID, 多网关部署时需唯一");
 
 int main(int argc, char *argv[])
 {
@@ -36,7 +37,7 @@ int main(int argc, char *argv[])
     gsb.make_discovery_object(FLAGS_registry_host, FLAGS_base_service, FLAGS_file_service,
         FLAGS_speech_service, FLAGS_message_service, FLAGS_friend_service, 
         FLAGS_user_service, FLAGS_transmite_service);
-    gsb.make_push_mq_object(FLAGS_mq_user, FLAGS_mq_pswd, FLAGS_mq_host);
+    gsb.make_push_mq_object(FLAGS_mq_user, FLAGS_mq_pswd, FLAGS_mq_host, FLAGS_gateway_id);
     gsb.make_server_object(FLAGS_websocket_listen_port, FLAGS_http_listen_port);
     auto server = gsb.build();
     server->start();
