@@ -6,3 +6,4 @@ bin/
 *.log
 *.exe
 docker-deps/
+agent_service/docs/
