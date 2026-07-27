@@ -6,6 +6,7 @@
 #include <chrono>
 #include <atomic>
 #include "connection.hpp"
+#include "rabbitmq.hpp"
 
 #include "user.pb.h"  // protobuf框架代码
 #include "base.pb.h"  // protobuf框架代码
@@ -63,7 +64,10 @@ namespace luna{
                 const std::string speech_service_name,
                 const std::string message_service_name,
                 const std::string transmite_service_name,
-                const std::string friend_service_name)
+                const std::string friend_service_name,
+                const MQClient::ptr &mq_push_client,
+                const std::string &push_exchange,
+                const std::string &push_routing_key)
                 :_redis_session(std::make_shared<Session>(redis_client)),
                 _redis_status(std::make_shared<Status>(redis_client)),
                 _mm_channels(channels),
@@ -74,7 +78,40 @@ namespace luna{
                 _message_service_name(message_service_name),
                 _transmite_service_name(transmite_service_name),
                 _friend_service_name(friend_service_name),
-                _connections(std::make_shared<Connection>()){
+                _connections(std::make_shared<Connection>()),
+                _mq_push_client(mq_push_client),
+                _push_exchange(push_exchange),
+                _push_routing_key(push_routing_key){
+
+                // 启动 MQ push 消费者 (在 MQClient 内部线程运行)
+                _mq_push_client->consume("push_queue",
+                    [this](const char *body, size_t len) -> ConsumeResult {
+                        std::string data(body, len);
+                        size_t nl = data.find('\n');
+                        if (nl == std::string::npos) return ConsumeResult::Fatal;
+                        std::string sender_uid = data.substr(0, nl);
+                        GetTransmitTargetRsp target_rsp;
+                        if (!target_rsp.ParseFromString(data.substr(nl + 1)))
+                            return ConsumeResult::Fatal;
+                        std::string notify_bin;
+                        {
+                            NotifyMessage notify;
+                            notify.set_notify_type(NotifyType::CHAT_MESSAGE_NOTIFY);
+                            notify.mutable_new_message_info()->mutable_message_info()
+                                ->CopyFrom(target_rsp.message());
+                            notify.SerializeToString(&notify_bin);
+                        }
+                        for (int i = 0; i < target_rsp.target_id_list_size(); i++) {
+                            std::string notify_uid = target_rsp.target_id_list(i);
+                            if (notify_uid == sender_uid) continue;
+                            auto conn = _connections->connection(notify_uid);
+                            if (!conn) continue;
+                            conn->send(notify_bin,
+                                       websocketpp::frame::opcode::value::binary);
+                        }
+                        return ConsumeResult::Success;
+                    }, "push_exchange", "push.notify");
+                LOG_DEBUG("MQ push consumer 已启动");
                 
                 _ws_server.set_access_channels(websocketpp::log::alevel::none);
                 _ws_server.init_asio();
@@ -1313,22 +1350,13 @@ namespace luna{
                     return err_response("消息转发子服务调用失败！");
                 }
                 auto t4 = std::chrono::steady_clock::now();
-                // 5. WebSocket 推送 (NotifyMessage 只序列化一次)
+                // 5. MQ 异步推送 (解耦, HTTP 不阻塞)
                 if (target_rsp.success()){
-                    std::string notify_bin;
-                    {
-                        NotifyMessage notify;
-                        notify.set_notify_type(NotifyType::CHAT_MESSAGE_NOTIFY);
-                        notify.mutable_new_message_info()->mutable_message_info()->CopyFrom(target_rsp.message());
-                        notify.SerializeToString(&notify_bin);
-                    }
-                    for (int i = 0; i < target_rsp.target_id_list_size(); i++) {
-                        std::string notify_uid = target_rsp.target_id_list(i);
-                        if (notify_uid == *uid) continue;
-                        auto conn = _connections->connection(notify_uid);
-                        if (!conn) continue;
-                        conn->send(notify_bin, websocketpp::frame::opcode::value::binary);
-                    }
+                    std::string push_body = *uid + "\n";
+                    std::string target_bin;
+                    target_rsp.SerializeToString(&target_bin);
+                    push_body += target_bin;
+                    _mq_push_client->publish(_push_exchange, push_body, _push_routing_key);
                 }
                 auto t5 = std::chrono::steady_clock::now();
                 // 6. 响应序列化
@@ -1370,6 +1398,10 @@ namespace luna{
 
             Connection::ptr _connections;
 
+            MQClient::ptr _mq_push_client;
+            std::string _push_exchange;
+            std::string _push_routing_key;
+
             server_t _ws_server; 
             httplib::Server _http_server;
             std::thread _http_thread;
@@ -1410,6 +1442,17 @@ namespace luna{
                 auto del_cb = std::bind(&ServiceManager::onServiceOffline, _mm_channels.get(), std::placeholders::_1, std::placeholders::_2);
                 _service_discoverer = std::make_shared<Discovery>(reg_host, base_service_name, put_cb, del_cb);
             }
+            // 构造 MQ push 客户端 (WebSocket 推送异步化)
+            void make_push_mq_object(const std::string &user,
+                                     const std::string &passwd,
+                                     const std::string &host) {
+                _mq_push_client = std::make_shared<MQClient>(user, passwd, host);
+                _mq_push_client->declareComponents("push_exchange",
+                    "push_queue", "push.notify", AMQP::topic);
+                _push_exchange = "push_exchange";
+                _push_routing_key = "push.notify";
+            }
+
             void make_server_object(int websocket_port, int http_port) {
                 _websocket_port = websocket_port;
                 _http_port = http_port;
@@ -1428,11 +1471,16 @@ namespace luna{
                     LOG_ERROR("还未初始化信道管理模块！");
                     abort();
                 }
+                if (!_mq_push_client) {
+                    LOG_ERROR("还未初始化 MQ push 模块！");
+                    abort();
+                }
                 GatewayServer::ptr server = std::make_shared<GatewayServer>(
-                    _websocket_port, _http_port, _redis_client, _mm_channels, 
+                    _websocket_port, _http_port, _redis_client, _mm_channels,
                     _service_discoverer, _user_service_name, _file_service_name,
-                    _speech_service_name, _message_service_name, 
-                    _transmite_service_name, _friend_service_name);
+                    _speech_service_name, _message_service_name,
+                    _transmite_service_name, _friend_service_name,
+                    _mq_push_client, _push_exchange, _push_routing_key);
                 return server;
             }
         private:
@@ -1440,6 +1488,9 @@ namespace luna{
             int _http_port;
 
             std::shared_ptr<sw::redis::Redis> _redis_client;
+            MQClient::ptr _mq_push_client;
+            std::string _push_exchange;
+            std::string _push_routing_key;
 
             std::string _file_service_name;
             std::string _speech_service_name;

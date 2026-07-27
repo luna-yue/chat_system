@@ -43,6 +43,7 @@ target_link_libraries(${target} -lgflags
     -lprotobuf -lleveldb -letcd-cpp-api 
     -lodb-mysql -lodb -lodb-boost
     -lhiredis -lredis++
+	-lamqpcpp -lev
     -lcpprest -lcurl
     -lpthread -lboost_system)
 
