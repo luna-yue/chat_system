@@ -5,7 +5,7 @@ project(message_server)
 
 set(target "message_server")
 
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O2 -DNDEBUG")
 
 set(proto_path ${CMAKE_CURRENT_SOURCE_DIR}/../proto)
 set (proto_files base.proto user.proto file.proto message.proto)

@@ -5,7 +5,7 @@ project(user_server)
 
 set(target "user_server")
 
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O2 -DNDEBUG")
 
 # 3. 检测并生成Protobuf框架代码
 set(proto_path ${CMAKE_CURRENT_SOURCE_DIR}/../proto)

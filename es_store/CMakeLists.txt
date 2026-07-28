@@ -5,7 +5,7 @@ project(es_store_server)
 
 set(target "es_store_server")
 
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O2 -DNDEBUG")
 
 # 3. 检测并生成ODB框架代码
 #   1. 添加所需的proto映射代码文件名称

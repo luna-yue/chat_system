@@ -5,7 +5,7 @@ project(friend_server)
 
 set(target "friend_server")
 
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O2 -DNDEBUG")
 
 # 3. 检测并生成ODB框架代码
 #   1. 添加所需的proto映射代码文件名称
@@ -68,7 +68,7 @@ target_link_libraries(${target} -lgflags
     -lspdlog -lfmt -lbrpc -lssl -lcrypto 
     -lprotobuf -lleveldb -letcd-cpp-api 
     -lcpprest -lcurl -lodb-mysql -lodb -lodb-boost
-    /usr/local/lib/libjsoncpp.so.1.8.4
+    /usr/local/lib/libjsoncpp.so.1.8.4 -lredis++ -lhiredis
     -lcpr -lelasticlient)
 
 
@@ -76,7 +76,7 @@ set(test_client "friend_client")
 set(test_files "")
 aux_source_directory(${CMAKE_CURRENT_SOURCE_DIR}/test test_files)
 add_executable(${test_client} ${test_files} ${proto_srcs})
-target_link_libraries(${test_client} -pthread -lgtest -lgflags -lspdlog -lfmt -lbrpc -lssl -lcrypto -lprotobuf -lleveldb -letcd-cpp-api -lcpprest -lcurl /usr/local/lib/libjsoncpp.so.1.8.4)
+target_link_libraries(${test_client} -pthread -lgtest -lgflags -lspdlog -lfmt -lbrpc -lssl -lcrypto -lprotobuf -lleveldb -letcd-cpp-api -lcpprest -lcurl /usr/local/lib/libjsoncpp.so.1.8.4 -lredis++ -lhiredis)
 
 # 6. 设置头文件默认搜索路径
 include_directories(${CMAKE_CURRENT_BINARY_DIR})
