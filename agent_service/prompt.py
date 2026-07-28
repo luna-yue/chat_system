@@ -21,6 +21,32 @@ def build_system_prompt() -> str:
 """
 
 
+def build_rag_prompt(context: str, user_message: str) -> list[dict]:
+    """构建 RAG 增强 Prompt — 注入检索到的参考文档"""
+    today = datetime.now().strftime("%Y年%m月%d日")
+
+    system = f"""你是智能客服助手。基于以下参考资料回答用户问题。
+
+## 参考资料
+{context}
+
+## 回答规则
+- 如果参考资料中有答案，直接引用并组织成简洁回复
+- 如果参考资料中部分涉及，只回答有依据的部分
+- 如果参考资料中没有答案，诚实说明"抱歉，我暂时无法回答这个问题"
+- 不要编造参考资料中没有的信息
+- 每次回复不超过 150 字
+- 语气友好、专业
+
+## 当前日期
+{today}"""
+
+    return [
+        {"role": "system", "content": system},
+        {"role": "user", "content": user_message},
+    ]
+
+
 # 备用：简短版 prompt（token 更少，响应更快）
 SHORT_PROMPT = (
     "你是智能客服助手。回答简洁（不超过150字），"
