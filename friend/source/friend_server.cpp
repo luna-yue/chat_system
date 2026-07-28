@@ -26,6 +26,7 @@ DEFINE_string(mysql_db, "TestDB", "Mysql默认库名称");
 DEFINE_string(mysql_cset, "utf8", "Mysql客户端字符集");
 DEFINE_int32(mysql_port, 0, "Mysql服务器访问端口");
 DEFINE_int32(mysql_pool_count, 4, "Mysql连接池最大连接数量");
+DEFINE_string(redis_host, "127.0.0.1", "Redis服务器访问地址");
 
 
 
@@ -40,6 +41,7 @@ int main(int argc, char *argv[])
     fsb.make_mysql_object(FLAGS_mysql_user, FLAGS_mysql_pswd, FLAGS_mysql_host, 
         FLAGS_mysql_db, FLAGS_mysql_cset, FLAGS_mysql_port, FLAGS_mysql_pool_count);
     fsb.make_discovery_object(FLAGS_registry_host, FLAGS_base_service, FLAGS_user_service, FLAGS_message_service);
+    fsb.make_redis_object(FLAGS_redis_host);
     fsb.make_rpc_server(FLAGS_listen_port, FLAGS_rpc_timeout, FLAGS_rpc_threads);
     fsb.make_registry_object(FLAGS_registry_host, FLAGS_base_service + FLAGS_instance_name, FLAGS_access_host);
     auto server = fsb.build();

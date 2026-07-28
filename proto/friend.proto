@@ -142,6 +142,20 @@ message GetChatSessionMemberRsp {
     repeated UserInfo member_info_list = 4;
 }
 
+// 踢出群成员
+message RemoveChatSessionMemberReq {
+    string request_id = 1;
+    optional string session_id = 2;
+    optional string user_id = 3;
+    string chat_session_id = 4;
+    string member_id = 5;
+}
+message RemoveChatSessionMemberRsp {
+    string request_id = 1;
+    bool success = 2;
+    string errmsg = 3; 
+}
+
 service FriendService {
     rpc GetFriendList(GetFriendListReq) returns (GetFriendListRsp);
     rpc FriendRemove(FriendRemoveReq) returns (FriendRemoveRsp);
@@ -151,5 +165,6 @@ service FriendService {
     rpc GetChatSessionList(GetChatSessionListReq) returns (GetChatSessionListRsp);
     rpc ChatSessionCreate(ChatSessionCreateReq) returns (ChatSessionCreateRsp);
     rpc GetChatSessionMember(GetChatSessionMemberReq) returns (GetChatSessionMemberRsp);
+    rpc RemoveChatSessionMember(RemoveChatSessionMemberReq) returns (RemoveChatSessionMemberRsp);
     rpc GetPendingFriendEventList(GetPendingFriendEventListReq) returns (GetPendingFriendEventListRsp);
 }

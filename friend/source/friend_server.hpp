@@ -2,6 +2,7 @@
 #include <butil/logging.h>
 
 #include "data_es.hpp"      // es数据管理客户端封装
+#include "data_redis.hpp"      // redis数据管理客户端封装
 #include "mysql_chat_session_member.hpp"      // mysql数据管理客户端封装
 #include "mysql_chat_session.hpp"      // mysql数据管理客户端封装
 #include "mysql_relation.hpp"      // mysql数据管理客户端封装
@@ -25,7 +26,8 @@ class FriendServiceImpl : public luna::FriendService {
             const std::shared_ptr<odb::core::database> &mysql_client,
             const ServiceManager::ptr &channel_manager,
             const std::string &user_service_name,
-            const std::string &message_service_name) :
+            const std::string &message_service_name,
+            const std::shared_ptr<sw::redis::Redis> &redis_client) :
             _es_user(std::make_shared<ESUser>(es_client)),
             _mysql_apply(std::make_shared<FriendApplyTable>(mysql_client)),
             _mysql_chat_session(std::make_shared<ChatSessionTable>(mysql_client)),
@@ -33,7 +35,8 @@ class FriendServiceImpl : public luna::FriendService {
             _mysql_relation(std::make_shared<RelationTable>(mysql_client)),
             _user_service_name(user_service_name),
             _message_service_name(message_service_name),
-            _mm_channels(channel_manager){}
+            _mm_channels(channel_manager),
+            _redis(redis_client){}
         ~FriendServiceImpl(){}
         virtual void GetFriendList(::google::protobuf::RpcController* controller,
             const ::luna::GetFriendListReq* request,
@@ -379,6 +382,7 @@ class FriendServiceImpl : public luna::FriendService {
                 member_list.push_back(csm);
             }
             ret = _mysql_chat_session_member->append(member_list);
+            _redis->del("session_members:" + cssid);
             if (ret == false) {
                 LOG_ERROR("{} - 向数据库添加会话成员信息失败: {}", rid, cssname);
                 return err_response(rid, "向数据库添加会话成员信息失败!");
@@ -427,6 +431,29 @@ class FriendServiceImpl : public luna::FriendService {
                 auto user_info = response->add_member_info_list();
                 user_info->CopyFrom(uit.second);
             }
+        }
+        virtual void RemoveChatSessionMember(::google::protobuf::RpcController* controller,
+            const ::luna::RemoveChatSessionMemberReq* request,
+            ::luna::RemoveChatSessionMemberRsp* response,
+            ::google::protobuf::Closure* done) override {
+            brpc::ClosureGuard rpc_guard(done);
+            auto err_response = [this, response](const std::string &rid, const std::string &errmsg) {
+                response->set_request_id(rid);
+                response->set_success(false);
+                response->set_errmsg(errmsg);
+            };
+            std::string rid = request->request_id();
+            std::string cssid = request->chat_session_id();
+            std::string member_id = request->member_id();
+            ChatSessionMember csm(cssid, member_id);
+            bool ret = _mysql_chat_session_member->remove(csm);
+            if (!ret) {
+                LOG_ERROR("{} - 踢出群成员失败！", rid);
+                return err_response(rid, "踢出群成员失败!");
+            }
+            _redis->del("session_members:" + cssid);
+            response->set_request_id(rid);
+            response->set_success(true);
         }
     private:
         bool GetRecentMsg(const std::string &rid, 
@@ -495,6 +522,7 @@ class FriendServiceImpl : public luna::FriendService {
         FriendApplyTable::ptr _mysql_apply;
         ChatSessionTable::ptr _mysql_chat_session;
         ChatSessionMemberTable::ptr _mysql_chat_session_member;
+        std::shared_ptr<sw::redis::Redis> _redis;
         RelationTable::ptr _mysql_relation;
 
         //这边是rpc调用客户端相关对象
@@ -525,6 +553,7 @@ class FriendServer {
         Discovery::ptr _service_discoverer;
         Registry::ptr _registry_client;
         std::shared_ptr<elasticlient::Client> _es_client;
+        std::shared_ptr<sw::redis::Redis> _redis_client;
         std::shared_ptr<odb::core::database> _mysql_client;
         std::shared_ptr<brpc::Server> _rpc_server;
 };
@@ -536,7 +565,10 @@ class FriendServerBuilder {
             _es_client = ESClientFactory::create(host_list);
         }
         //构造mysql客户端对象
-        void make_mysql_object(
+        void make_redis_object(const std::string &host, int port = 6379, int db = 0) {
+                _redis_client = RedisClientFactory::create(host, port, db, true);
+            }
+            void make_mysql_object(
             const std::string &user,
             const std::string &pswd,
             const std::string &host,
@@ -570,7 +602,11 @@ class FriendServerBuilder {
             _registry_client->Registr(service_name, access_host);
         }
         void make_rpc_server(uint16_t port, int32_t timeout, uint8_t num_threads) {
-            if (!_es_client) {
+            if (!_redis_client) {
+                    LOG_ERROR("还未初始化Redis客户端模块！");
+                    abort();
+                }
+                if (!_es_client) {
                 LOG_ERROR("还未初始化ES搜索引擎模块！");
                 abort();
             }
@@ -585,7 +621,7 @@ class FriendServerBuilder {
             _rpc_server = std::make_shared<brpc::Server>();
 
             FriendServiceImpl *friend_service = new FriendServiceImpl(_es_client,
-                _mysql_client, _mm_channels, _user_service_name, _message_service_name);
+                _mysql_client, _mm_channels, _user_service_name, _message_service_name, _redis_client);
             int ret = _rpc_server->AddService(friend_service, 
                 brpc::ServiceOwnership::SERVER_OWNS_SERVICE);
             if (ret == -1) {
@@ -624,6 +660,7 @@ class FriendServerBuilder {
         Registry::ptr _registry_client;
 
         std::shared_ptr<elasticlient::Client> _es_client;
+        std::shared_ptr<sw::redis::Redis> _redis_client;
         std::shared_ptr<odb::core::database> _mysql_client;
 
         std::string _user_service_name;

@@ -41,6 +41,7 @@ namespace luna{
     #define CSS_GET_LIST            "/service/friend/get_chat_session_list"
     #define CSS_CREATE              "/service/friend/create_chat_session"
     #define CSS_GET_MEMBER          "/service/friend/get_chat_session_member"
+    #define CSS_REMOVE_MEMBER       "/service/friend/remove_chat_session_member"
     #define MSG_GET_RANGE           "/service/message_storage/get_history"
     #define MSG_GET_RECENT          "/service/message_storage/get_recent"
     #define MSG_KEY_SEARCH          "/service/message_storage/search_history"
@@ -146,6 +147,7 @@ namespace luna{
                 _http_server.Post(CSS_GET_LIST           , (httplib::Server::Handler)std::bind(&GatewayServer::GetChatSessionList         , this, std::placeholders::_1, std::placeholders::_2));
                 _http_server.Post(CSS_CREATE             , (httplib::Server::Handler)std::bind(&GatewayServer::ChatSessionCreate          , this, std::placeholders::_1, std::placeholders::_2));
                 _http_server.Post(CSS_GET_MEMBER         , (httplib::Server::Handler)std::bind(&GatewayServer::GetChatSessionMember       , this, std::placeholders::_1, std::placeholders::_2));
+                _http_server.Post(CSS_REMOVE_MEMBER    , (httplib::Server::Handler)std::bind(&GatewayServer::RemoveChatSessionMember   , this, std::placeholders::_1, std::placeholders::_2));
                 _http_server.Post(MSG_GET_RANGE          , (httplib::Server::Handler)std::bind(&GatewayServer::GetHistoryMsg              , this, std::placeholders::_1, std::placeholders::_2));
                 _http_server.Post(MSG_GET_RECENT         , (httplib::Server::Handler)std::bind(&GatewayServer::GetRecentMsg               , this, std::placeholders::_1, std::placeholders::_2));
                 _http_server.Post(MSG_KEY_SEARCH         , (httplib::Server::Handler)std::bind(&GatewayServer::MsgSearch                  , this, std::placeholders::_1, std::placeholders::_2));
@@ -1012,6 +1014,39 @@ namespace luna{
                 }
                 // 5. 向客户端进行响应
                 rsp.clear_chat_session_info();
+                response.set_content(rsp.SerializeAsString(), "application/x-protbuf");
+            }
+
+            void RemoveChatSessionMember(const httplib::Request &request, httplib::Response &response) {
+                RemoveChatSessionMemberReq req;
+                RemoveChatSessionMemberRsp rsp;
+                bool ret = req.ParseFromString(request.body);
+                if (!ret) {
+                    LOG_ERROR("踢出群成员请求正文反序列化失败！");
+                    rsp.set_errmsg("反序列化失败");
+                    response.set_content(rsp.SerializeAsString(), "application/x-protbuf");
+                    return;
+                }
+                std::string ssid = req.session_id();
+                auto uid = _redis_session->uid(ssid);
+                if (!uid) {
+                    rsp.set_errmsg("获取登录会话关联用户信息失败！");
+                    response.set_content(rsp.SerializeAsString(), "application/x-protbuf");
+                    return;
+                }
+                req.set_user_id(*uid);
+                auto channel = _mm_channels->choose(_friend_service_name);
+                if (!channel) {
+                    rsp.set_errmsg("未找到好友子服务节点！");
+                    response.set_content(rsp.SerializeAsString(), "application/x-protbuf");
+                    return;
+                }
+                luna::FriendService_Stub stub(channel.get());
+                brpc::Controller cntl;
+                stub.RemoveChatSessionMember(&cntl, &req, &rsp, nullptr);
+                if (cntl.Failed()) {
+                    rsp.set_errmsg("好友子服务调用失败！");
+                }
                 response.set_content(rsp.SerializeAsString(), "application/x-protbuf");
             }
             void GetHistoryMsg(const httplib::Request &request, httplib::Response &response) {
