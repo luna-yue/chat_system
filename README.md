@@ -156,14 +156,26 @@ Message QPS: **320 → 826 (+158%)**
 
 ---
 
-## 水平扩展
+## 水平扩展验证
 
-| 部署 | QPS |
-|------|-----|
-| 1 Gateway + 1 Transmite | ~644 |
-| 2 Gateway + 2 Transmite | ~645 |
+在同等硬件环境下，通过逐步增加 Gateway 和 Transmite 实例数，用 C++ QPS 压测工具
+(20 线程, 5000 请求, 100 人群) 测试消息发送接口的吞吐变化。
 
-瓶颈在共享中间件，不在应用层。多网关部署：`--gateway_id=gw2`。
+| 部署 | QPS | 说明 |
+|------|-----|------|
+| 1 Gateway + 1 Transmite | ~644 | 基准 |
+| 1 Gateway + 2 Transmite | ~588 | Transmite 加实例无提升 |
+| 2 Gateway + 1 Transmite | ~674 | Gateway 加实例小幅提升 |
+| 2 Gateway + 2 Transmite | ~645 | 几乎无变化 |
+
+**结论**：应用层水平扩展无法线性提升 QPS，当前瓶颈在共享中间件
+(单实例 MySQL/Redis/RabbitMQ)。要突破天花板需要对中间件做读写分离或集群化。
+
+多网关部署需配置不同的 `--gateway_id`，MQ push 队列按实例隔离:
+```bash
+./gateway_server --gateway_id=gw1  # 队列: push_queue_gw_gw1
+./gateway_server --gateway_id=gw2  # 队列: push_queue_gw_gw2
+```
 
 ---
 
