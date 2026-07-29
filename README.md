@@ -19,20 +19,21 @@ C++ 微服务架构的即时通讯系统，支持单聊/群聊/文件/语音，�
                            └──┬─┬─┬─┬──┘
                               │ │ │ │
          ┌────────────────────┼─┼─┼─┼──────────────┐
-         │           ┌────────┘ │ │ └─────┐         │
+         │           ┌────────┘ │ │ └─────┐        │
     ┌────▼──┐   ┌───▼──┐  ┌───▼─▼─▼──┐  │  ┌──────▼──┐ ┌────────┐
     │ User  │   │Friend│  │Transmite │  │  │ Message │ │ES Store│
-    └──┬─┬──┘   └──┬─┬─┘  └┬─┬─┬───┬┘  │  └────┬────┘ └───┬────┘
+    └──┬─┬──┘   └──┬─┬─┘  └┬─┬─┬───┬┘   │  └────┬────┘ └───┬────┘
        │ │         │ │      │ │ │   │   │       │          │
        │ │    ┌────┘ │      │ │ │   │   │       │          │
-   ┌───▼─▼────▼──┐   │      │ │ │   │   │  ┌────▼──────────▼──┐
-   │ MySQL+Redis │   │      │ │ │   │   │  │  MySQL + ES      │
-   └─────────────┘   │      │ │ │   │   │  └──────────────────┘
+   ┌───▼─▼────▼──┐   │      │ │ │   │   │  ┌────▼────┐ ┌──▼─────┐
+   │ MySQL+Redis │   │      │ │ │   │   │  │  MySQL  │ │  ES    │
+   └─────────────┘   │      │ │ │   │   │  └─────────┘ └────────┘
                      │      │ │ │   │   │
                 ┌────▼──────▼─▼─▼───▼───▼────┐
                 │        RabbitMQ           │
-                │  msg 队列: Message + ES    │
-                │  push 队列: Gateway 自消费  │
+                │  msg → Message 消费落 MySQL │
+                │  msg → ES Store 消费落 ES  │
+                │  push→ Gateway 消费推 WS   │
                 └───────────────────────────┘
 
               ┌──────────┐
@@ -61,7 +62,7 @@ Client → Gateway → Transmite
                      ├── 查群成员: Redis (缓存) / MySQL (回源)
                      ├── 取发件人: Redis (UserInfoCache) / User RPC (回源)
                      └── 拼 MessageInfo → publish RabbitMQ
-                                           ├── Message 服务 消费 → 落 MySQL + ES
+                                           ├── Message 服务 消费 → 落 MySQL
                                            └── ES Store 消费 → 落 ES 索引
 
 Gateway → 遍历 target_list → publish RabbitMQ push 队列
@@ -117,7 +118,7 @@ Message QPS: **320 → 826 (+158%)**
 | 3 | Gateway 插桩 → 删无效日志 | 994 |
 | 4 | MQ 异步推送 (100 WS 在线 +55%) | 826 |
 
-📖 [详细优化过程](docs/qps-optimization-journey.md)
+
 
 ---
 
@@ -130,7 +131,6 @@ Message QPS: **320 → 826 (+158%)**
 | 工具调用 | ReAct 循环 (订单查询/FAQ检索/人工转接) |
 | 评估 | 262 条测试集, 工具准确率 80.9% |
 
-📖 [Phase 1: LLM 调用](docs/phase1-deep-dive.md) · [Phase 2: RAG](docs/phase2-deep-dive.md) · [Phase 3: Agent](docs/phase3-deep-dive.md) · [面试 2 分钟](docs/interview-2min-pitch.md)
 
 ---
 
