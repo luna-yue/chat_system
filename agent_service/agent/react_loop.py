@@ -7,7 +7,22 @@ from prompt import AGENT_SYSTEM_PROMPT
 MAX_STEPS = 5  # 最多调用 5 次工具, 防止死循环
 
 
+class RunResult:
+    def __init__(self, reply: str, tools_called: list[str]):
+        self.reply = reply
+        self.tools_called = tools_called
+
+
 def run(user_id: str, user_message: str) -> str:
+    return _run(user_id, user_message).reply
+
+
+def run_with_trace(user_id: str, user_message: str) -> RunResult:
+    """带工具追踪的执行, 供评估使用"""
+    return _run(user_id, user_message)
+
+
+def _run(user_id: str, user_message: str) -> RunResult:
     """
     ReAct 循环:
     1. 构建 messages = [system_prompt, user_message]
@@ -19,6 +34,7 @@ def run(user_id: str, user_message: str) -> str:
         {"role": "system", "content": AGENT_SYSTEM_PROMPT},
         {"role": "user", "content": user_message},
     ]
+    tools_called = []
 
     for step in range(MAX_STEPS):
         reply = chat_with_tools(messages, TOOLS)
@@ -32,14 +48,14 @@ def run(user_id: str, user_message: str) -> str:
 
             for tc in tool_calls:
                 name = tc["function"]["name"]
+                tools_called.append(name)
                 args = tc["function"].get("arguments", {})
                 # 注入 user_id (如果工具需要)
                 if "user_id" in args:
                     args["user_id"] = user_id
 
-                print(f"[Agent] step={step} tool={name} args={args}")
+                print(f"[Agent] step={step} tool={name}")
                 result = execute_tool(name, args)
-                print(f"[Agent] result={result[:80]}...")
                 messages.append(
                     {"role": "tool", "tool_call_id": tc["id"], "content": result}
                 )
@@ -48,6 +64,6 @@ def run(user_id: str, user_message: str) -> str:
             continue
         else:
             # LLM 直接给了文本回复
-            return reply["content"]
+            return RunResult(reply["content"], tools_called)
 
-    return "抱歉，处理超时，请稍后重试。"
+    return RunResult("抱歉，处理超时，请稍后重试。", tools_called)
