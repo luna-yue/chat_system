@@ -8,116 +8,129 @@
 #include <atomic>
 #include <random>
 #include <sstream>
+#include <chrono>
+#include <unordered_map>
 
 namespace luna {
 
 // ============================================================================
-// SessionMemberCache — 群成员列表的 Redis 缓存层
+// SessionMemberCache — 三级缓存: 本地 → Redis → MySQL
 // ============================================================================
-// 特性:
-//   - Cache-Aside 模式: 读缓存 → miss → db_loader 回源 → 回填
-//   - 防穿透: 空结果写入哨兵值 (短 TTL)
-//   - 防击穿: 分片互斥锁, 同一 key 只有一个线程回源 MySQL
-//   - 防雪崩: TTL + 随机抖动
-//   - 主动失效: invalidate() → DEL cache_key
+// L1: 进程内 unordered_map         ~0.2us (无网络, 无序列化)
+// L2: Redis                         ~150us
+// L3: MySQL (db_loader 回调)        ~5000us
 //
-// 用法:
-//   auto table = std::make_shared<ChatSessionMemberTable>(mysql);
-//   auto loader = [table](const std::string& ssid) { return table->members(ssid); };
-//   auto cache = std::make_shared<SessionMemberCache>(redis, loader);
-//   auto members = cache->get("group_123");
+// 多进程部署时各进程 L1 独立, 无并发冲突.
+// 一致性: L2 被 Friend 主动失效后, L1 靠短 TTL 自然过期.
 // ============================================================================
 
 class SessionMemberCache {
 public:
     using ptr = std::shared_ptr<SessionMemberCache>;
-
-    // 回源查询回调: chat_ssid → uid 列表
     using DbLoader = std::function<std::vector<std::string>(const std::string& chat_ssid)>;
 
     SessionMemberCache(std::shared_ptr<sw::redis::Redis> redis, DbLoader db_loader)
         : _redis(std::move(redis)), _db_loader(std::move(db_loader)) {}
 
     // ------------------------------------------------------------------
-    // 获取成员列表 (缓存优先, miss 时回源)
+    // 获取成员列表 (L1 → L2 → L3)
     // ------------------------------------------------------------------
     std::vector<std::string> get(const std::string& chat_ssid) {
+        // ── L1: 本地缓存 ──
+        {
+            auto it = _local.find(chat_ssid);
+            if (it != _local.end()) {
+                auto elapsed = std::chrono::steady_clock::now() - it->second.since;
+                if (elapsed < std::chrono::seconds(L1_TTL)) {
+                    _hits.fetch_add(1, std::memory_order_relaxed);
+                    if (it->second.value == EMPTY_SENTINEL) return {};
+                    return split(it->second.value);
+                }
+                // 过期了, 删掉, 往下走
+                _local.erase(it);
+            }
+        }
+
         std::string key = cache_key(chat_ssid);
 
-        // 1. 查 Redis
+        // ── L2: Redis ──
         auto cached = _redis->get(key);
         if (cached) {
             _hits.fetch_add(1, std::memory_order_relaxed);
+            _local_set(chat_ssid, *cached);
             if (*cached == EMPTY_SENTINEL) return {};
             return split(*cached);
         }
 
-        // 2. Miss — 获取分片锁 (防击穿)
+        // Miss — 分片锁 (防击穿)
         size_t shard = std::hash<std::string>{}(key) % MUTEX_SHARDS;
         std::lock_guard<std::mutex> lock(_mutexes[shard]);
 
-        // 3. Double-check (等锁期间可能已被其他线程填充)
+        // Double-check
         cached = _redis->get(key);
         if (cached) {
             _hits.fetch_add(1, std::memory_order_relaxed);
+            _local_set(chat_ssid, *cached);
             if (*cached == EMPTY_SENTINEL) return {};
             return split(*cached);
         }
 
-        // 4. 回源 DB
+        // ── L3: MySQL ──
         _misses.fetch_add(1, std::memory_order_relaxed);
         auto members = _db_loader(chat_ssid);
 
-        // 5. 回填 Redis (TTL + 随机抖动, 防雪崩)
-        int ttl = members.empty()
-            ? TTL_EMPTY                                     // 空结果短 TTL (防穿透)
-            : TTL_BASE + jitter();                           // 正常 TTL + 抖动
+        // 回填 L2 + L1
+        int ttl = members.empty() ? TTL_EMPTY : TTL_BASE + jitter();
         std::string value = members.empty() ? EMPTY_SENTINEL : join(members);
         _redis->set(key, value, std::chrono::seconds(ttl));
+        _local_set(chat_ssid, value);
 
         return members;
     }
 
     // ------------------------------------------------------------------
-    // 主动失效: 成员变更时调用
+    // 主动失效: 清 L2, L1 靠短 TTL 自然过期
     // ------------------------------------------------------------------
     void invalidate(const std::string& chat_ssid) {
         _redis->del(cache_key(chat_ssid));
+        _local.erase(chat_ssid);
     }
 
-    // ------------------------------------------------------------------
-    // 统计信息
-    // ------------------------------------------------------------------
     struct Stats {
         long hits;
         long misses;
     };
-
     Stats stats() const {
         return { _hits.load(std::memory_order_relaxed),
                  _misses.load(std::memory_order_relaxed) };
     }
 
 private:
-    static constexpr int TTL_BASE   = 5;   // 正常缓存秒数
-    static constexpr int TTL_EMPTY  = 2;   // 空哨兵秒数 (防穿透)
-    static constexpr int TTL_JITTER = 2;   // 随机抖动上限秒数 (防雪崩)
-    static constexpr int MUTEX_SHARDS = 64; // 互斥锁分片数
+    static constexpr int TTL_BASE   = 5;
+    static constexpr int TTL_EMPTY  = 2;
+    static constexpr int TTL_JITTER = 2;
+    static constexpr int L1_TTL     = 2;  // L1 过期比 L2 短, 快速感知失效
+    static constexpr int MUTEX_SHARDS = 64;
     static constexpr const char* KEY_PREFIX = "session_members:";
     static constexpr const char* EMPTY_SENTINEL = "__EMPTY__";
 
-    std::string cache_key(const std::string& chat_ssid) const {
-        return KEY_PREFIX + chat_ssid;
+    struct LocalEntry {
+        std::string value;
+        std::chrono::steady_clock::time_point since;
+    };
+
+    std::string cache_key(const std::string& s) const { return KEY_PREFIX + s; }
+
+    void _local_set(const std::string& chat_ssid, const std::string& value) {
+        _local[chat_ssid] = {value, std::chrono::steady_clock::now()};
     }
 
-    // 线程安全的 TTL 随机抖动
     static int jitter() {
         thread_local std::mt19937 gen(std::random_device{}());
         thread_local std::uniform_int_distribution<int> dist(0, TTL_JITTER);
         return dist(gen);
     }
 
-    // CSV 序列化
     static std::string join(const std::vector<std::string>& v) {
         if (v.empty()) return "";
         std::ostringstream oss;
@@ -127,8 +140,6 @@ private:
         }
         return oss.str();
     }
-
-    // CSV 反序列化
     static std::vector<std::string> split(const std::string& s) {
         std::vector<std::string> res;
         size_t start = 0, end;
@@ -145,6 +156,9 @@ private:
     std::array<std::mutex, MUTEX_SHARDS> _mutexes;
     std::atomic<long> _hits{0};
     std::atomic<long> _misses{0};
+
+    // L1 本地缓存: 单进程内无并发竞争 (Transmite 单进程)
+    std::unordered_map<std::string, LocalEntry> _local;
 };
 
 } // namespace luna

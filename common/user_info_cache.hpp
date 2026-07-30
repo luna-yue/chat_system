@@ -7,91 +7,96 @@
 #include <array>
 #include <atomic>
 #include <random>
+#include <chrono>
+#include <unordered_map>
 
 #include "base.pb.h"
 
 namespace luna {
 
 // ============================================================================
-// UserInfoCache — 用户信息缓存, 消除 Transmite → User 的嵌套 RPC
+// UserInfoCache — 三级缓存: 本地 → Redis → User RPC
 // ============================================================================
-// 与 SessionMemberCache 同样的设计模式:
-//   - Cache-Aside: 查 Redis → miss → DbLoader(RPC) → 回填
-//   - 防击穿: 64 分片互斥锁
-//   - 防雪崩: TTL + 随机抖动
-//   - 主动失效: invalidate() → DEL key
-//
-// 用法:
-//   auto loader = [&](const std::string& uid) -> std::optional<UserInfo> {
-//       // 调 User 服务 RPC
-//   };
-//   auto cache = std::make_shared<UserInfoCache>(redis, loader);
-//   auto sender = cache->get(uid);
+// L1: 进程内 unordered_map          ~0.2us
+// L2: Redis                         ~150us
+// L3: User 服务 RPC (DbLoader)      ~900us
 // ============================================================================
 
 class UserInfoCache {
 public:
     using ptr = std::shared_ptr<UserInfoCache>;
-
-    // 回源查询: user_id → UserInfo (nullopt = 查询失败 / 用户不存在)
     using DbLoader = std::function<std::optional<luna::UserInfo>(const std::string& user_id)>;
 
     UserInfoCache(std::shared_ptr<sw::redis::Redis> redis, DbLoader db_loader)
         : _redis(std::move(redis)), _db_loader(std::move(db_loader)) {}
 
     // ------------------------------------------------------------------
-    // 获取用户信息 (缓存优先)
+    // 获取用户信息 (L1 → L2 → L3)
     // ------------------------------------------------------------------
     std::optional<luna::UserInfo> get(const std::string& user_id) {
+        // ── L1: 本地缓存 ──
+        {
+            auto it = _local.find(user_id);
+            if (it != _local.end()) {
+                auto elapsed = std::chrono::steady_clock::now() - it->second.since;
+                if (elapsed < std::chrono::seconds(L1_TTL)) {
+                    _hits.fetch_add(1, std::memory_order_relaxed);
+                    luna::UserInfo info;
+                    if (info.ParseFromString(it->second.value))
+                        return info;
+                }
+                _local.erase(it);
+            }
+        }
+
         std::string key = cache_key(user_id);
 
-        // 1. 查 Redis
+        // ── L2: Redis ──
         auto cached = _redis->get(key);
         if (cached) {
             _hits.fetch_add(1, std::memory_order_relaxed);
+            _local_set(user_id, *cached);
             luna::UserInfo info;
             if (info.ParseFromString(*cached))
                 return info;
-            // 反序列化失败视为 miss, 走回源
         }
 
-        // 2. Miss — 分片锁 (防击穿)
+        // Miss — 分片锁 (防击穿)
         size_t shard = std::hash<std::string>{}(key) % MUTEX_SHARDS;
         std::lock_guard<std::mutex> lock(_mutexes[shard]);
 
-        // 3. Double-check
+        // Double-check
         cached = _redis->get(key);
         if (cached) {
             _hits.fetch_add(1, std::memory_order_relaxed);
+            _local_set(user_id, *cached);
             luna::UserInfo info;
             if (info.ParseFromString(*cached))
                 return info;
         }
 
-        // 4. 回源 (RPC 调用 User 服务)
+        // ── L3: User RPC ──
         _misses.fetch_add(1, std::memory_order_relaxed);
         auto info = _db_loader(user_id);
         if (!info.has_value()) return std::nullopt;
 
-        // 5. 回填 Redis
         std::string serialized;
         if (info->SerializeToString(&serialized)) {
             int ttl = TTL_BASE + jitter();
             _redis->set(key, serialized, std::chrono::seconds(ttl));
+            _local_set(user_id, serialized);
         }
         return info;
     }
 
     // ------------------------------------------------------------------
-    // 主动失效: 用户信息变更时调用 (改昵称/头像等)
+    // 主动失效: 清 L2 + L1
     // ------------------------------------------------------------------
     void invalidate(const std::string& user_id) {
         _redis->del(cache_key(user_id));
+        _local.erase(user_id);
     }
 
-    // ------------------------------------------------------------------
-    // 统计
-    // ------------------------------------------------------------------
     struct Stats { long hits; long misses; };
     Stats stats() const {
         return { _hits.load(std::memory_order_relaxed),
@@ -99,14 +104,21 @@ public:
     }
 
 private:
-    // 用户信息变更频率低, TTL 设长一些
-    static constexpr int TTL_BASE   = 60;  // 基础 1 分钟
-    static constexpr int TTL_JITTER = 10;  // 抖动 0~10s
+    static constexpr int TTL_BASE   = 60;
+    static constexpr int TTL_JITTER = 10;
+    static constexpr int L1_TTL     = 10;  // L1 比 L2 短, 快速感知失效
     static constexpr int MUTEX_SHARDS = 64;
     static constexpr const char* KEY_PREFIX = "user_info:";
 
-    static std::string cache_key(const std::string& user_id) {
-        return KEY_PREFIX + user_id;
+    struct LocalEntry {
+        std::string value;
+        std::chrono::steady_clock::time_point since;
+    };
+
+    static std::string cache_key(const std::string& uid) { return KEY_PREFIX + uid; }
+
+    void _local_set(const std::string& uid, const std::string& value) {
+        _local[uid] = {value, std::chrono::steady_clock::now()};
     }
 
     static int jitter() {
@@ -120,6 +132,7 @@ private:
     std::array<std::mutex, MUTEX_SHARDS> _mutexes;
     std::atomic<long> _hits{0};
     std::atomic<long> _misses{0};
+    std::unordered_map<std::string, LocalEntry> _local;
 };
 
 } // namespace luna
