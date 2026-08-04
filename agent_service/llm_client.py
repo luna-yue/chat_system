@@ -39,6 +39,10 @@ def _make_request(messages: list[dict], tools: list[dict] = None) -> dict:
         raise RuntimeError("rate limited")
     if resp.status_code == 401:
         raise RuntimeError("auth failed")
+    if resp.status_code == 400:
+        import sys
+        print(f"[LLM 400] body={resp.text[:400]}", file=sys.stderr)
+        print(f"[LLM 400] messages={messages}", file=sys.stderr)
     resp.raise_for_status()
     return resp.json()
 
@@ -92,9 +96,17 @@ def chat_with_tools(messages: list[dict], tools: list[dict]) -> dict:
                         "arguments": args,
                     },
                 })
+            # 回喂时剥掉 index 字段 (OpenAI 协议要求, 否则 400)
+            clean_calls = []
+            for tc in msg["tool_calls"]:
+                clean_calls.append({
+                    "id": tc["id"],
+                    "type": "function",
+                    "function": tc["function"],
+                })
             return {
                 "tool_calls": tool_calls,
-                "message": {"role": "assistant", "tool_calls": msg["tool_calls"]},
+                "message": {"role": "assistant", "tool_calls": clean_calls},
             }
 
         # 普通文本回复
