@@ -1,15 +1,16 @@
-"""Agent 服务入口 — FastAPI HTTP 服务, Phase 3: +Tool Calling"""
+"""Agent 服务入口 — FastAPI HTTP 服务, 智能客服 + 多 Agent 系统监控"""
 
 from fastapi import FastAPI
 
 from models import ChatRequest, ChatResponse
 from agent.react_loop import run as agent_run
+from agent.supervisor import run_check
 from rag.retriever import get_retriever
 
 app = FastAPI(
     title="Agent Service",
-    description="智能客服 Agent — ReAct + 工具调用",
-    version="3.0.0",
+    description="智能客服 Agent + 多 Agent 系统监控",
+    version="4.0.0",
 )
 
 retriever = None
@@ -35,6 +36,16 @@ def handle_chat(req: ChatRequest) -> ChatResponse:
     """
     reply = agent_run(req.user_id, req.message)
     return ChatResponse(reply=reply, model="deepseek-chat", tokens_used=0)
+
+
+@app.post("/ops", response_model=ChatResponse)
+def handle_ops(req: ChatRequest) -> ChatResponse:
+    """
+    多 Agent 系统巡检:
+    Discovery → Health → Log → DB → Report
+    """
+    report = run_check()
+    return ChatResponse(reply=report, model="multi-agent", tokens_used=0)
 
 
 if __name__ == "__main__":

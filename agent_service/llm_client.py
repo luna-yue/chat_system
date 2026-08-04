@@ -80,11 +80,16 @@ def chat_with_tools(messages: list[dict], tools: list[dict]) -> dict:
         if msg.get("tool_calls"):
             tool_calls = []
             for tc in msg["tool_calls"]:
+                args_raw = tc["function"].get("arguments", "{}")
+                try:
+                    args = json.loads(args_raw) if args_raw else {}
+                except json.JSONDecodeError:
+                    args = {"raw": args_raw}  # 解析失败保留原文
                 tool_calls.append({
                     "id": tc["id"],
                     "function": {
                         "name": tc["function"]["name"],
-                        "arguments": json.loads(tc["function"]["arguments"]),
+                        "arguments": args,
                     },
                 })
             return {
@@ -97,8 +102,8 @@ def chat_with_tools(messages: list[dict], tools: list[dict]) -> dict:
 
     except requests.Timeout:
         return {"content": "抱歉，服务响应超时，请稍后重试。"}
-    except Exception:
-        return {"content": "抱歉，服务暂时不可用。"}
+    except Exception as e:
+        return {"content": f"抱歉，服务暂时不可用: {e}"}
     """
     调用 DeepSeek Chat API, 返回 (回复文本, token 消耗).
 

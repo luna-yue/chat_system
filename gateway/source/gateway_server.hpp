@@ -47,6 +47,7 @@ namespace luna{
     #define MSG_KEY_SEARCH          "/service/message_storage/search_history"
     #define NEW_MESSAGE             "/service/message_transmit/new_message"
     #define AGENT_CHAT              "/service/agent/chat"
+    #define AGENT_OPS               "/service/agent/ops"
     #define FILE_GET_SINGLE         "/service/file/get_single_file"
     #define FILE_GET_MULTI          "/service/file/get_multi_file"
     #define FILE_PUT_SINGLE         "/service/file/put_single_file"
@@ -158,6 +159,7 @@ namespace luna{
                 _http_server.Post(FILE_PUT_MULTI         , (httplib::Server::Handler)std::bind(&GatewayServer::PutMultiFile               , this, std::placeholders::_1, std::placeholders::_2));
                 _http_server.Post(SPEECH_RECOGNITION     , (httplib::Server::Handler)std::bind(&GatewayServer::SpeechRecognition          , this, std::placeholders::_1, std::placeholders::_2));
                 _http_server.Post(AGENT_CHAT             , (httplib::Server::Handler)std::bind(&GatewayServer::AgentChat                 , this, std::placeholders::_1, std::placeholders::_2));
+                _http_server.Post(AGENT_OPS              , (httplib::Server::Handler)std::bind(&GatewayServer::AgentOps                  , this, std::placeholders::_1, std::placeholders::_2));
                 _http_thread = std::thread([this, http_port](){
                     _http_server.listen("0.0.0.0", http_port);
                 });
@@ -1472,6 +1474,55 @@ namespace luna{
                 } else {
                     response.status = 502;
                     response.set_content(R"({"reply":"客服系统繁忙，请稍后重试"})", "application/json");
+                }
+            }
+
+            // ================================================================
+            // Agent Ops — 多 Agent 系统巡检
+            // ================================================================
+            void AgentOps(const httplib::Request &request, httplib::Response &response) {
+                // 1. 解析 JSON ({"session_id":"xxx","message":"检查系统"})
+                std::string body = request.body;
+                auto extract_json = [](const std::string &json, const std::string &key) -> std::string {
+                    std::string search = "\"" + key + "\":\"";
+                    size_t start = json.find(search);
+                    if (start == std::string::npos) return "";
+                    start += search.size();
+                    size_t end = json.find("\"", start);
+                    if (end == std::string::npos) return "";
+                    return json.substr(start, end - start);
+                };
+                std::string sid = extract_json(body, "session_id");
+                std::string msg = extract_json(body, "message");
+
+                if (sid.empty()) {
+                    response.status = 400;
+                    response.set_content(R"({"error":"missing session_id"})", "application/json");
+                    return;
+                }
+
+                // 2. 鉴权
+                auto uid = _redis_session->uid(sid);
+                if (!uid) {
+                    response.status = 401;
+                    response.set_content(R"({"error":"invalid session"})", "application/json");
+                    return;
+                }
+
+                // 3. 转发到 Agent 服务 /ops (巡检可能较慢, 超时给长一点)
+                httplib::Client agent_cli("127.0.0.1", 8080);
+                agent_cli.set_connection_timeout(180);
+                agent_cli.set_read_timeout(180);
+
+                std::string agent_body = R"({"user_id":")" + *uid + R"(","message":")" + (msg.empty() ? std::string("检查系统") : msg) + R"("})";
+                auto agent_resp = agent_cli.Post("/ops", agent_body, "application/json");
+
+                // 4. 返回
+                if (agent_resp && agent_resp->status == 200) {
+                    response.set_content(agent_resp->body, "application/json");
+                } else {
+                    response.status = 502;
+                    response.set_content(R"({"reply":"巡检失败，请稍后重试"})", "application/json");
                 }
             }
 
