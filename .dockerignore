@@ -1,0 +1,8 @@
+build/
+.git/
+*.o
+*.a
+*.log
+qps_test_login/
+qps_test_message/
+test/
