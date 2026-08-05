@@ -186,8 +186,9 @@ def scan_all_logs() -> str:
 # ── MySQL / Redis 状态 ──
 def mysql_status() -> str:
     try:
+        from agent.monitor.config import MYSQL  # 敏感信息走 .env, 不硬编码
         r = subprocess.run(
-            ["mysqladmin", "-h127.0.0.1", "-uroot", "-p968745321", "status"],
+            ["mysqladmin", f"-h{MYSQL['host']}", f"-u{MYSQL['user']}", f"-p{MYSQL['password']}", "status"],
             capture_output=True, text=True, timeout=5,
         )
         return r.stdout.strip() or r.stderr.strip()

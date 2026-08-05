@@ -45,7 +45,7 @@ FALLBACK_TOOLS = [
             "service": {"type": "string", "description": "服务名"}}, "required": ["service"]}}},
 ]
 
-SYSTEM_PROMPT = """你是分布式系统的运维诊断器。你会收到监控事件和诊断状态, 通过调用工具定位问题根因, 并尽可能恢复服务。
+SYSTEM_PROMPT = """你是分布式系统的运维诊断器。你会收到监控事件和诊断状态, 通过调用工具定位问题根因, 并根据风险级别决定是否自动恢复服务。
 
 ## 诊断方法
 1. 分析事件, 决定先查什么 (端口? 进程? 日志? 数据库?)
@@ -53,10 +53,19 @@ SYSTEM_PROMPT = """你是分布式系统的运维诊断器。你会收到监控�
 3. 基于证据继续推理, 可能需要多轮工具调用
 4. 证据充分后, 给出诊断结论
 
-## 自愈能力
-- 如果确认服务进程不存在 (check_process 返回"进程不存在"), 且端口不通,
-  调用 restart_service 拉起服务
-- 重启前必须确认进程确实不存在, 不要误杀运行中的服务 (高危操作)
+## 处理决策 (按风险分级)
+【低风险 → 自动自愈】
+- 服务进程不存在 / 端口不通 (崩溃、未启动、卡死):
+  确认进程确实不存在后, 调用 restart_service 拉起服务
+  重启前必须确认, 不要误杀运行中的服务
+
+【中风险 → 只报告, 不自动处理】
+- 端口冲突: 报告占用情况, 不自动杀占用进程
+
+【高风险 → 只报告, 不自动处理】
+- 数据库高负载 (MySQL/Redis): 报告指标和原因, 建议优化
+- 日志大量错误: 报告错误内容, 可能需人工看代码
+- CPU/内存高: 报告数据, 可能是正常波动
 
 ## 工具 (10个)
 check_port / check_http / check_process / check_cpu_mem /
@@ -88,7 +97,7 @@ def decide(state: dict, event: dict, tool_results: dict) -> str:
         if reply.get("tool_calls"):
             # 关键: 先把 assistant 的 tool_calls 追加进 messages
             messages.append(reply["message"])
-            # LLM 要调工具 → 真执行 → 结果喂回
+            # LLM 要调工具 → 真执行 → 结果喂回 + 记录
             for tc in reply["tool_calls"]:
                 name = tc["function"]["name"]
                 args = tc["function"].get("arguments", {})
@@ -96,6 +105,10 @@ def decide(state: dict, event: dict, tool_results: dict) -> str:
                 print(f"    [LLM 执行] {name}({args}) = {result[:60]}")
                 messages.append(
                     {"role": "tool", "tool_call_id": tc["id"], "content": result})
+                # 记录到 tool_results (可追踪)
+                svc = args.get("service", event.get("service", "?"))
+                tool_results.setdefault(svc, []).append(
+                    {"tool": name, "args": args, "result": result[:200]})
             continue  # LLM 看结果再推理
 
         # LLM 给出结论

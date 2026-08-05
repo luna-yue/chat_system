@@ -57,10 +57,20 @@ class Planner:
             return f"[等待] {svc} {etype} 规则未命中, 继续观察 (unhandled={self.unhandled})"
 
         # ── 第三层: LLM 兜底 ──
+        # 按服务逐个处理累积的故障, 避免 LLM 只专注一个服务
         self.unhandled = 0
         if self.llm_decision_fn:
-            decision = self.llm_decision_fn(self.state, event, self.tool_results)
-            return f"[LLM] {decision}"
+            affected = list(self.state.keys())
+            decisions = []
+            for svc in affected:
+                svc_event = {
+                    "type": self.state[svc][-1] if self.state[svc] else etype,
+                    "service": svc,
+                    "detail": f"累积事件: {self.state[svc]}",
+                }
+                decision = self.llm_decision_fn(self.state, svc_event, self.tool_results)
+                decisions.append(f"{svc}: {decision}")
+            return "[LLM] " + " | ".join(decisions)
 
         return f"[无法处理] {svc} {etype}"
 

@@ -7,7 +7,7 @@ import signal
 import subprocess
 import time
 
-os.environ.setdefault("DEEPSEEK_API_KEY", "your-api-key-here")
+import config  # 加载 .env / 环境变量 (敏感信息不硬编码)
 
 from agent.core.event_bus import Event, EventBus
 from agent.core.planner import Planner

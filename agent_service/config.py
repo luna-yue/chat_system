@@ -1,6 +1,16 @@
-"""Agent 服务配置 — 所有配置通过环境变量注入, 不硬编码"""
+"""Agent 服务配置 — 优先环境变量, 其次 .env 文件, 不硬编码"""
 
 import os
+from pathlib import Path
+
+# 加载 .env (若存在, 且未通过环境变量注入)
+_env_path = Path(__file__).parent / ".env"
+if _env_path.exists() and not os.getenv("DEEPSEEK_API_KEY"):
+    for line in _env_path.read_text().splitlines():
+        line = line.strip()
+        if line and not line.startswith("#") and "=" in line:
+            k, v = line.split("=", 1)
+            os.environ.setdefault(k.strip(), v.strip())
 
 # LLM API 配置
 LLM_API_KEY = os.getenv("DEEPSEEK_API_KEY", "your-api-key-here")

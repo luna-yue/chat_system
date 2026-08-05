@@ -212,11 +212,12 @@ def restart_service(service: str) -> str:
         pass
     time.sleep(1)
 
-    # 重新启动 (完全脱离当前会话)
+    # 重新启动 (用服务自己的启动参数, 完全脱离当前会话)
     try:
         devnull = open(os.devnull, "w")
+        cmd = [bin_path] + meta.get("args", ["--run_mode=false"])
         proc = subprocess.Popen(
-            [bin_path, "--run_mode=false", "--redis_host=127.0.0.1"],
+            cmd,
             stdout=devnull, stderr=devnull,
             stdin=subprocess.DEVNULL,
             start_new_session=True,  # 独立进程组, 不被清理

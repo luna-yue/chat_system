@@ -8,3 +8,8 @@ bin/
 docker-deps/
 agent_service/docs/
 docs/
+__pycache__/
+agent_service/.env
+nohup.out
+.claude/
+agent_service/ops/incidents/

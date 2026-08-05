@@ -1,11 +1,30 @@
-"""Mock 订单查询工具"""
+"""订单查询 — 读真实 MySQL, 返回用户参与的聊天会话"""
+
+import pymysql
+from agent.monitor.config import MYSQL
 
 
 def execute(user_id: str) -> str:
-    """根据 user_id 查询最近订单, mock 实现"""
-    return (
-        "订单列表:\n"
-        f"  1. 订单 #ORD-2024-1847 | 商品: 白色T恤 L码 | 金额: ¥129 | 状态: 已发货 | 快递: SF1234567890\n"
-        f"  2. 订单 #ORD-2024-1892 | 商品: 黑色运动鞋 42码 | 金额: ¥459 | 状态: 已签收\n"
-        f"  3. 订单 #ORD-2024-1935 | 商品: 蓝牙耳机 | 金额: ¥299 | 状态: 待付款\n"
+    """查询用户参与的聊天会话 (作为"订单"展示)"""
+    conn = pymysql.connect(
+        host=MYSQL["host"], user=MYSQL["user"], password=MYSQL["password"],
+        database="TestDB", charset="utf8mb4",
     )
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT cs.chat_session_id, cs.chat_session_name "
+                "FROM chat_session cs "
+                "JOIN chat_session_member csm ON cs.chat_session_id = csm.session_id "
+                "WHERE csm.user_id = %s LIMIT 5",
+                (user_id,),
+            )
+            rows = cur.fetchall()
+            if not rows:
+                return f"用户 {user_id} 暂无会话记录。"
+            lines = [f"用户 {user_id} 的会话列表:"]
+            for i, (sid, name) in enumerate(rows, 1):
+                lines.append(f"  {i}. 会话ID: {sid} | 名称: {name or '(未命名)'}")
+            return "\n".join(lines)
+    finally:
+        conn.close()
